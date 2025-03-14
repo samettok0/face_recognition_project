@@ -1,8 +1,12 @@
 import pickle
-from pathlib import Path
 from collections import Counter
+from pathlib import Path
 
 import face_recognition
+from PIL import Image, ImageDraw
+
+BOUNDING_BOX_COLOR = "blue"
+TEXT_COLOR = "white"
 
 DEFAULT_ENCODINGS_PATH = Path("output/encodings.pkl")
 
@@ -55,6 +59,8 @@ def recognize_faces(
         input_image, input_face_locations
     )
 
+    pillow_image = Image.fromarray(input_image)
+    draw = ImageDraw.Draw(pillow_image)
 
     for bounding_box, unknown_encoding in zip(
         input_face_locations, input_face_encodings
@@ -62,7 +68,27 @@ def recognize_faces(
         name = _recognize_face(unknown_encoding, loaded_encodings)
         if not name:
             name = "Unknown"
-        print(name, bounding_box)
+        _display_face(draw, bounding_box, name)
+
+    del draw
+    pillow_image.show()
+
+def _display_face(draw, bounding_box, name):
+    top, right, bottom, left = bounding_box
+    draw.rectangle(((left, top), (right, bottom)), outline=BOUNDING_BOX_COLOR)
+    text_left, text_top, text_right, text_bottom = draw.textbbox(
+        (left, bottom), name
+    )
+    draw.rectangle(
+        ((text_left, text_top), (text_right, text_bottom)),
+        fill="blue",
+        outline="blue",
+    )
+    draw.text(
+        (text_left, text_top),
+        name,
+        fill="white",
+    )
 
 def _recognize_face(unknown_encoding, loaded_encodings):
     boolean_matches = face_recognition.compare_faces(
@@ -76,7 +102,7 @@ def _recognize_face(unknown_encoding, loaded_encodings):
     if votes:
         return votes.most_common(1)[0][0]
 
-recognize_faces("unknown.jpg")
+recognize_faces("image.png")
 
 
 
