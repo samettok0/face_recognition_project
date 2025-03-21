@@ -1,0 +1,40 @@
+# Virtual Environment
+facerecogenv/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+
+# Logs & Temporary Files
+*.log
+*.tmp
+
+# IDE & Editor Files
+.vscode/
+*.swp
+*.swo
+.idea/
+*.DS_Store  # macOS system files
+
+# Jupyter Notebooks Checkpoints (if using Jupyter)
+.ipynb_checkpoints/
+
+# Compiled Python Files
+*.so
+*.dll
+*.dylib
+
+# Large or Processed Data Files
+output/
+models/
+data/*.csv
+data/*.h5  # Example if using deep learning models
+data/*.pickle
+
+# Ignore Image Outputs
+*.png
+*.jpg
+*.jpeg
+
+# Ignore Environment Config Files
+.env
