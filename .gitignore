@@ -79,9 +79,6 @@ data/*.npz
 *.bmp
 *.tiff
 
-# Keep specific images directories if needed
- !assets/images/
- !docs/images/
 
 # Environment and Configuration Files
 .env
