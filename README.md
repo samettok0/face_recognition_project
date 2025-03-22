@@ -33,7 +33,7 @@ face_recognition_project/
 
 1. Clone the repository:
    ```
-   git clone https://github.com/your-username/face_recognition_project.git
+   git clone https://github.com/samettok0/face_recognition_project.git
    cd face_recognition_project
    ```
 
