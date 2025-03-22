@@ -1,40 +1,100 @@
-# Virtual Environment
+# Python Virtual Environment
 facerecogenv/
+venv/
+env/
+ENV/
 
-# Python Cache
+# Python Cache Files
 __pycache__/
 *.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Logs & Temporary Files
 *.log
 *.tmp
+logs/
+tmp/
 
 # IDE & Editor Files
 .vscode/
 *.swp
 *.swo
 .idea/
-*.DS_Store  # macOS system files
+*.sublime-*
+.DS_Store
+.Spotlight-V100
+.Trashes
 
-# Jupyter Notebooks Checkpoints (if using Jupyter)
+# Jupyter Notebooks
 .ipynb_checkpoints/
+*.ipynb
 
 # Compiled Python Files
 *.so
 *.dll
 *.dylib
+*.pyd
 
-# Large or Processed Data Files
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Data and Model Files
 output/
-models/
+data/
 data/*.csv
-data/*.h5  # Example if using deep learning models
+data/*.h5
 data/*.pickle
+data/*.npy
+data/*.npz
+*.weights
+*.pt
+*.pth
+*.onnx
+*.tflite
+*.pb
 
-# Ignore Image Outputs
+# Image Files
 *.png
 *.jpg
 *.jpeg
+*.gif
+*.bmp
+*.tiff
 
-# Ignore Environment Config Files
+# Keep specific images directories if needed
+ !assets/images/
+ !docs/images/
+
+# Environment and Configuration Files
 .env
+.env.*
+config.ini
+*.cfg
+
+
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Local machine specific
+.history/
