@@ -1,7 +1,3 @@
-
-I'll update the README to remove the macOS optimization and M4 specific mentions:
-
-```markdown:README.md
 # Face Recognition Biometric Authentication
 
 A modern facial recognition system for biometric authentication using computer vision. This system is designed to provide secure access control through real-time face recognition.
@@ -123,4 +119,3 @@ If you experience incorrect identifications:
 ## Contributing
 
 Feel free to submit issues or pull requests for improvements or bug fixes.
-```
