@@ -1,85 +1,109 @@
-# Face Recognition System
 
-This project implements a face recognition system using computer vision libraries to detect and recognize faces in real-time. It can be used for authentication purposes in IoT projects using a USB camera.
+I'll update the README to remove the macOS optimization and M4 specific mentions:
 
-## Features
+```markdown:README.md
+# Face Recognition Biometric Authentication
 
-- **Face Detection & Recognition**: Detect and recognize faces in images and live camera feed
-- **Training Interface**: Register new people by capturing their photos and training the model
-- **Live Recognition**: Real-time face recognition using a webcam
-- **Command-line Interface**: Easy to use commands for different functions
+A modern facial recognition system for biometric authentication using computer vision. This system is designed to provide secure access control through real-time face recognition.
 
-## Project Structure
+## Overview
 
-```
-face_recognition_project/
-├── src/
-│   ├── camera_handler.py    # Enhanced camera operations
-│   ├── config.py            # Configuration settings
-│   ├── face_encoder.py      # Face encoding and training
-│   ├── face_recognizer.py   # Face recognition logic
-│   ├── main.py              # Command-line interface
-│   ├── utils.py             # Utility functions
-│   └── __init__.py          # Package marker
-├── data/
-│   ├── training/            # Training images organized by person
-│   └── validation/          # Validation images
-├── output/                  # Output files (encodings, captured images)
-├── requirements.txt         # Project dependencies
-└── README.md                # Project documentation
-```
+This project implements a video-based biometric authentication system that can:
+- Register new users by capturing face images
+- Authenticate users in real-time using face recognition
+- Continuously monitor for authorized faces
+- Provide a foundation for integration with physical lock mechanisms
 
-## Setup Instructions
+The system focuses on accuracy and performance for secure biometric access control.
+
+## Requirements
+
+- Python 3.8+
+- Webcam
+
+## Installation
 
 1. Clone the repository:
    ```
-   git clone https://github.com/samettok0/face_recognition_project.git
-   cd face_recognition_project
+   git clone https://github.com/yourusername/face-recognition-auth.git
+   cd face-recognition-auth
    ```
 
-2. Install the required dependencies:
+2. Create a virtual environment (recommended):
+   ```
+   python -m venv facerecogenv
+   source facerecogenv/bin/activate  # On Windows: facerecogenv\Scripts\activate
+   ```
+
+3. Install dependencies:
    ```
    pip install -r requirements.txt
    ```
 
+   Note: Installation of `dlib` may require additional steps on some systems.
+
 ## Usage
 
-### Training the Model
+### Register a New User
 
-Train the model with existing images in the training directory:
-
-```
-python -m src.main train [--model hog|cnn]
-```
-
-### Registering a New Person
-
-Capture photos of a new person and add them to the training data:
+Before authentication, you need to register at least one user:
 
 ```
 python -m src.main register
 ```
 
-This will open the camera and guide you through the process of capturing photos.
+Follow the on-screen instructions to:
+- Enter your name
+- Capture multiple face images (10 recommended)
+- Train the recognition model
 
-### Recognizing Faces in an Image
+### One-time Authentication
+
+To run a single authentication attempt:
 
 ```
-python -m src.main recognize path/to/image.jpg [--model hog|cnn]
+python -m src.main auth
 ```
 
-### Live Face Recognition
+This will activate the camera and attempt to authenticate any face it detects against registered users.
+
+### Continuous Monitoring
+
+For ongoing authentication (e.g., to control access to a secure area):
 
 ```
-python -m src.main live [--model hog|cnn]
+python -m src.main monitor
 ```
 
-## Models
+This mode continuously checks for authorized faces and triggers the authentication process when a face is detected.
 
-The system supports two face detection models:
+### Retraining the Model
 
-- **HOG** (default): Faster but less accurate, suitable for most applications
-- **CNN**: More accurate but slower, requires GPU for good performance
+If you need to update the face recognition model after adding new users:
+
+```
+python -m src.main train
+```
+
+## Project Structure
+
+- `src/`
+  - `biometric_auth.py`: Core authentication functionality
+  - `camera_handler.py`: Camera management and frame capture
+  - `config.py`: Configuration settings
+  - `face_encoder.py`: Face encoding and model training
+  - `face_recognizer.py`: Face recognition algorithms
+  - `main.py`: Command-line interface
+  - `utils.py`: Utility functions
+
+## Improving Recognition Accuracy
+
+If you experience incorrect identifications:
+
+1. **Increase training data**: Capture more images (15-20) during registration
+2. **Vary conditions**: Register in different lighting and angles
+3. **Adjust threshold**: Modify the recognition threshold in `BiometricAuth` class
+4. **Consistent lighting**: Ensure good, consistent lighting during authentication
 
 ## Dependencies
 
@@ -89,6 +113,14 @@ The system supports two face detection models:
 - **numpy**: For numerical operations
 - **Pillow**: For image manipulation
 
+## Future Enhancements
+
+- Hardware integration for physical lock control
+- Multi-factor authentication
+- Liveness detection to prevent spoofing
+- Mobile app control
+
 ## Contributing
 
 Feel free to submit issues or pull requests for improvements or bug fixes.
+```

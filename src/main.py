@@ -6,33 +6,12 @@ import sys
 import os
 from pathlib import Path
 
-from .config import HOG_MODEL, CNN_MODEL
 from .face_encoder import FaceEncoder
-from .face_recognizer import FaceRecognizer
+from .biometric_auth import BiometricAuth
 from .camera_handler import CameraHandler
 from .utils import get_logger
 
 logger = get_logger(__name__)
-
-def process_frame_with_recognition(frame, recognizer):
-    """Process a frame with face recognition and draw bounding boxes"""
-    # Convert BGR to RGB (face_recognition uses RGB)
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    
-    # Recognize faces
-    results = recognizer.recognize_face_in_frame(rgb_frame)
-    
-    # Draw bounding boxes and names
-    for (top, right, bottom, left), name in results:
-        # Draw rectangle around the face
-        cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
-        
-        # Draw name label
-        cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 255, 0), cv2.FILLED)
-        cv2.putText(frame, name, (left + 6, bottom - 6), 
-                    cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255), 1)
-    
-    return frame
 
 def register_new_person(camera_handler, face_encoder):
     """Register a new person by taking their photos and training the model"""
@@ -46,9 +25,9 @@ def register_new_person(camera_handler, face_encoder):
     
     # Number of training images to capture
     try:
-        num_images = int(input("How many photos to capture (default: 5): ") or "5")
+        num_images = int(input("How many photos to capture (default: 10): ") or "10")
     except ValueError:
-        num_images = 5
+        num_images = 10
     
     print(f"\nCapturing {num_images} photos for {name}...")
     print("Position your face in the camera and press SPACE to capture each photo.")
@@ -106,21 +85,49 @@ def register_new_person(camera_handler, face_encoder):
     
     return False
 
-def live_recognition(model):
-    """Run live face recognition from webcam"""
-    recognizer = FaceRecognizer(model=model)
-    camera = CameraHandler()
+def run_authenticate():
+    """Run one-time authentication attempt"""
+    auth = BiometricAuth(recognition_threshold=0.55)
     
-    def process_frame(frame):
-        return process_frame_with_recognition(frame, recognizer)
+    # Add all users from training directory as authorized
+    training_dir = Path("data/training")
+    if training_dir.exists():
+        for person_dir in training_dir.iterdir():
+            if person_dir.is_dir():
+                auth.add_authorized_user(person_dir.name)
     
-    print("Starting live recognition...")
-    print("Press 'q' to quit")
+    print("Starting authentication...")
+    print("Looking for authorized user. Press 'q' to quit.")
     
-    camera.show_preview(window_name="Face Recognition", process_frame=process_frame)
+    success, username = auth.authenticate(max_attempts=30, timeout=20)
+    
+    if success:
+        print(f"✅ Authentication successful: {username}")
+    else:
+        print("❌ Authentication failed")
+
+def run_continuous_monitoring():
+    """Run continuous monitoring and authentication"""
+    auth = BiometricAuth(
+        recognition_threshold=0.55,  # Adjust based on your needs
+        consecutive_matches_required=3  # How many frames must match
+    )
+    
+    # Add all users from training directory as authorized
+    training_dir = Path("data/training")
+    if training_dir.exists():
+        for person_dir in training_dir.iterdir():
+            if person_dir.is_dir():
+                auth.add_authorized_user(person_dir.name)
+                print(f"Authorized user: {person_dir.name}")
+    
+    print("Starting continuous monitoring...")
+    print("Looking for authorized users. Press 'q' to quit.")
+    
+    auth.run_continuous_monitoring()
 
 def main():
-    parser = argparse.ArgumentParser(description="Face Recognition System")
+    parser = argparse.ArgumentParser(description="Face Recognition Authentication System")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     
     # Train command
@@ -128,17 +135,13 @@ def main():
     train_parser.add_argument("--model", choices=["hog", "cnn"], default="hog",
                              help="Face detection model to use (hog is faster, cnn is more accurate)")
     
-    # Recognize command
-    recognize_parser = subparsers.add_parser("recognize", 
-                                          help="Recognize faces in an image")
-    recognize_parser.add_argument("image", help="Path to the image to analyze")
-    recognize_parser.add_argument("--model", choices=["hog", "cnn"], default="hog",
-                                help="Face detection model to use")
+    # Authentication command
+    auth_parser = subparsers.add_parser("auth", 
+                                      help="Run one-time authentication")
     
-    # Live recognition command
-    live_parser = subparsers.add_parser("live", help="Run live face recognition from webcam")
-    live_parser.add_argument("--model", choices=["hog", "cnn"], default="hog",
-                          help="Face detection model to use")
+    # Monitor command
+    monitor_parser = subparsers.add_parser("monitor", 
+                                        help="Run continuous monitoring for authorized faces")
     
     # Register command
     register_parser = subparsers.add_parser("register", 
@@ -154,17 +157,11 @@ def main():
         encoder.encode_known_faces()
         print("Training complete!")
         
-    elif args.command == "recognize":
-        if not os.path.exists(args.image):
-            print(f"Error: Image file not found: {args.image}")
-            return
-            
-        print(f"Recognizing faces in {args.image}...")
-        recognizer = FaceRecognizer(model=args.model)
-        recognizer.recognize_faces(args.image)
+    elif args.command == "auth":
+        run_authenticate()
         
-    elif args.command == "live":
-        live_recognition(args.model)
+    elif args.command == "monitor":
+        run_continuous_monitoring()
         
     elif args.command == "register":
         camera = CameraHandler()
