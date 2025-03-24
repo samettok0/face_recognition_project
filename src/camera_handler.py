@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 class CameraHandler:
     def __init__(self, camera_index: int = DEFAULT_CAMERA_INDEX):
         """
-        Initialize the camera handler optimized for M4 MacBook Pro
+        Initialize the camera handler
         
         Args:
             camera_index: Index of the camera to use
@@ -25,7 +25,7 @@ class CameraHandler:
         
     def start(self) -> bool:
         """
-        Start the camera with optimized settings for M4 MacBook Pro
+        Start the camera
         
         Returns:
             True if successful, False otherwise
@@ -33,8 +33,7 @@ class CameraHandler:
         try:
             self.cap = cv2.VideoCapture(self.camera_index)
             
-            # Set optimized resolution for M4 MacBook Pro
-            # Use higher resolution since M4 has good performance
+            # Set resolution
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
             
