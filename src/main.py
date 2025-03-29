@@ -85,9 +85,9 @@ def register_new_person(camera_handler, face_encoder):
     
     return False
 
-def run_authenticate():
+def run_authenticate(model: str = "hog"):
     """Run one-time authentication attempt"""
-    auth = BiometricAuth(recognition_threshold=0.55)
+    auth = BiometricAuth(recognition_threshold=0.55, model=model)
     
     # Add all users from training directory as authorized
     training_dir = Path("data/training")
@@ -106,11 +106,12 @@ def run_authenticate():
     else:
         print("❌ Authentication failed")
 
-def run_continuous_monitoring():
+def run_continuous_monitoring(model: str = "hog"):
     """Run continuous monitoring and authentication"""
     auth = BiometricAuth(
         recognition_threshold=0.55,  # Adjust based on your needs
-        consecutive_matches_required=3  # How many frames must match
+        consecutive_matches_required=3,  # How many frames must match
+        model=model
     )
     
     # Add all users from training directory as authorized
@@ -138,10 +139,14 @@ def main():
     # Authentication command
     auth_parser = subparsers.add_parser("auth", 
                                       help="Run one-time authentication")
+    auth_parser.add_argument("--model", choices=["hog", "cnn"], default="hog",
+                           help="Face detection model to use (hog is faster, cnn is more accurate)")
     
     # Monitor command
     monitor_parser = subparsers.add_parser("monitor", 
                                         help="Run continuous monitoring for authorized faces")
+    monitor_parser.add_argument("--model", choices=["hog", "cnn"], default="hog",
+                              help="Face detection model to use (hog is faster, cnn is more accurate)")
     
     # Register command
     register_parser = subparsers.add_parser("register", 
@@ -158,10 +163,10 @@ def main():
         print("Training complete!")
         
     elif args.command == "auth":
-        run_authenticate()
+        run_authenticate(model=args.model)
         
     elif args.command == "monitor":
-        run_continuous_monitoring()
+        run_continuous_monitoring(model=args.model)
         
     elif args.command == "register":
         camera = CameraHandler()

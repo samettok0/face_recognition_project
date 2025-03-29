@@ -2,14 +2,12 @@ from pathlib import Path
 
 # Project directory structure
 TRAINING_DIR = Path("data/training")
-VALIDATION_DIR = Path("data/validation")
 OUTPUT_DIR = Path("output")
 ENCODINGS_FILE = OUTPUT_DIR / "encodings.pkl"
 
 # Create required directories
 TRAINING_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
-VALIDATION_DIR.mkdir(parents=True, exist_ok=True)
 
 # Face detection models
 HOG_MODEL = "hog"  # Faster but less accurate

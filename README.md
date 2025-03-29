@@ -9,6 +9,7 @@ This project implements a video-based biometric authentication system that can:
 - Authenticate users in real-time using face recognition
 - Continuously monitor for authorized faces
 - Provide a foundation for integration with physical lock mechanisms
+- Support both HOG and CNN face detection models
 
 The system focuses on accuracy and performance for secure biometric access control.
 
@@ -16,12 +17,13 @@ The system focuses on accuracy and performance for secure biometric access contr
 
 - Python 3.8+
 - Webcam
+- GPU (recommended for CNN model)
 
 ## Installation
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/face-recognition-auth.git
+   git clone https://github.com/samettok0/face-recognition-auth.git
    cd face-recognition-auth
    ```
 
@@ -58,8 +60,12 @@ Follow the on-screen instructions to:
 To run a single authentication attempt:
 
 ```
-python -m src.main auth
+python -m src.main auth [--model {hog,cnn}]
 ```
+
+Options:
+- `--model hog`: Use HOG model (faster, works on CPU)
+- `--model cnn`: Use CNN model (more accurate, requires GPU)
 
 This will activate the camera and attempt to authenticate any face it detects against registered users.
 
@@ -68,8 +74,12 @@ This will activate the camera and attempt to authenticate any face it detects ag
 For ongoing authentication (e.g., to control access to a secure area):
 
 ```
-python -m src.main monitor
+python -m src.main monitor [--model {hog,cnn}]
 ```
+
+Options:
+- `--model hog`: Use HOG model (faster, works on CPU)
+- `--model cnn`: Use CNN model (more accurate, requires GPU)
 
 This mode continuously checks for authorized faces and triggers the authentication process when a face is detected.
 
@@ -78,8 +88,30 @@ This mode continuously checks for authorized faces and triggers the authenticati
 If you need to update the face recognition model after adding new users:
 
 ```
-python -m src.main train
+python -m src.main train [--model {hog,cnn}]
 ```
+
+Options:
+- `--model hog`: Use HOG model (faster, works on CPU)
+- `--model cnn`: Use CNN model (more accurate, requires GPU)
+
+## Model Selection Guide
+
+The system supports two face detection models:
+
+1. **HOG Model** (default)
+   - Faster processing speed
+   - Works well on CPU
+   - Typical confidence scores: 0.60-0.70
+   - Good for real-time applications
+   - Recommended for most use cases
+
+2. **CNN Model**
+   - Higher accuracy
+   - Requires GPU for good performance
+   - Typical confidence scores: 0.80-0.90
+   - Slower processing speed
+   - Recommended for high-security applications
 
 ## Project Structure
 
@@ -96,10 +128,13 @@ python -m src.main train
 
 If you experience incorrect identifications:
 
-1. **Increase training data**: Capture more images (15-20) during registration
-2. **Vary conditions**: Register in different lighting and angles
-3. **Adjust threshold**: Modify the recognition threshold in `BiometricAuth` class
-4. **Consistent lighting**: Ensure good, consistent lighting during authentication
+1. **Choose the right model**: 
+   - Use CNN model for higher accuracy (requires GPU)
+   - Use HOG model for faster processing
+2. **Increase training data**: Capture more images (15-20) during registration
+3. **Vary conditions**: Register in different lighting and angles
+4. **Adjust threshold**: Modify the recognition threshold in `BiometricAuth` class
+5. **Consistent lighting**: Ensure good, consistent lighting during authentication
 
 ## Dependencies
 
