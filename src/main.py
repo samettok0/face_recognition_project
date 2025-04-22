@@ -9,6 +9,9 @@ from pathlib import Path
 from .face_encoder import FaceEncoder
 from .biometric_auth import BiometricAuth
 from .camera_handler import CameraHandler
+from .head_pose_detector import HeadPoseDetector
+from .head_pose_demo import run_head_pose_demo
+from .guided_registration import register_user_guided
 from .utils import logger
 from .config import TRAINING_DIR
 
@@ -98,9 +101,17 @@ def main():
     monitor_parser.add_argument("--model", choices=["hog", "cnn"], default="hog",
                               help="Face detection model to use (hog is faster, cnn is more accurate)")
     
-    # Register command
+    # Regular Register command
     register_parser = subparsers.add_parser("register", 
                                          help="Register a new person by taking their photos")
+    
+    # Guided Register command with head pose detection
+    guided_register_parser = subparsers.add_parser("guided-register", 
+                                               help="Register a new person with guided head pose detection")
+    
+    # Head pose demo command
+    head_pose_parser = subparsers.add_parser("head_pose", 
+                                         help="Run head pose detection demo")
     
     # Parse arguments
     args = parser.parse_args()
@@ -122,6 +133,12 @@ def main():
         camera = CameraHandler()
         encoder = FaceEncoder()
         register_new_person(camera, encoder)
+        
+    elif args.command == "guided-register":
+        register_user_guided()
+        
+    elif args.command == "head_pose":
+        run_head_pose_demo()
         
     else:
         parser.print_help()

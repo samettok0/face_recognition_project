@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from typing import Tuple, List, Any, Optional
 from .config import BOUNDING_BOX_COLOR, TEXT_COLOR, LOG_FILE, LOG_FORMAT
+import time
 
 # Configure logging once at module level
 logging.basicConfig(
@@ -173,3 +174,31 @@ def get_logger(name: str = None) -> logging.Logger:
         # Create a child logger that inherits settings from the root logger
         return logging.getLogger(f"face_recognition.{name}")
     return logger
+
+def create_flash_effect(frame: np.ndarray, flash_duration: float = 0.1) -> None:
+    """
+    Create a flash effect when taking a photo
+    
+    Args:
+        frame: Current frame to display flash on
+        flash_duration: Duration of flash effect in seconds
+    """
+    h, w, _ = frame.shape
+    # Create a white overlay
+    white_overlay = np.ones((h, w, 3), dtype=np.uint8) * 255
+    
+    # Create a gradually fading flash effect
+    start_time = time.time()
+    while time.time() - start_time < flash_duration:
+        # Calculate elapsed percentage
+        elapsed = (time.time() - start_time) / flash_duration
+        
+        # Alpha starts at 0.9 and decreases to 0
+        alpha = max(0, 0.9 * (1 - elapsed))
+        
+        # Create blended frame
+        blended = cv2.addWeighted(frame, 1 - alpha, white_overlay, alpha, 0)
+        
+        # Display the flash effect
+        cv2.imshow("Registration", blended)
+        cv2.waitKey(1)

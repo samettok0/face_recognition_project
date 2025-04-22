@@ -8,6 +8,8 @@ This project implements a video-based biometric authentication system that can:
 - Register new users by capturing face images
 - Authenticate users in real-time using face recognition
 - Continuously monitor for authorized faces
+- Detect and analyze head pose for improved user experience
+- Provide guided registration with automatic pose detection
 - Provide a foundation for integration with physical lock mechanisms
 - Support both HOG and CNN face detection models
 
@@ -44,7 +46,9 @@ The system focuses on accuracy and performance for secure biometric access contr
 
 ### Register a New User
 
-Before authentication, you need to register at least one user:
+Before authentication, you need to register at least one user. You have two options:
+
+#### Standard Registration:
 
 ```
 python -m src.main register
@@ -54,6 +58,28 @@ Follow the on-screen instructions to:
 - Enter your name
 - Capture multiple face images (10 recommended)
 - Train the recognition model
+
+#### Guided Registration (Recommended):
+
+```
+python -m src.main guided-register
+```
+
+This advanced registration method features:
+- Automatic head pose detection (Forward, Left, Right, Up, Down)
+- Guided UI with real-time feedback
+- Automatic photo capture when your pose is correct
+- Flash effect for better user experience
+- Automatic burst mode for multiple photos per pose
+
+Follow the on-screen instructions to:
+- Enter your name
+- Choose how many photos to capture per pose
+- Follow the guided process to capture images from all angles
+- Hold each pose steady when prompted
+- Watch for the countdown and burst capture
+
+The guided registration creates a more comprehensive dataset with images from multiple angles, which significantly improves recognition accuracy.
 
 ### One-time Authentication
 
@@ -82,6 +108,21 @@ Options:
 - `--model cnn`: Use CNN model (more accurate, requires GPU)
 
 This mode continuously checks for authorized faces and triggers the authentication process when a face is detected.
+
+### Head Pose Detection Demo
+
+To run the head pose detection demo:
+
+```
+python -m src.main head_pose
+```
+
+This will start a real-time demo showing:
+- Head pose detection (Left, Right, Up, Down, Forward)
+- Face centering detection
+- Numerical yaw, pitch, and roll estimates
+
+This feature is useful for improving authentication by ensuring users are properly positioned.
 
 ### Retraining the Model
 
@@ -121,6 +162,9 @@ The system supports two face detection models:
   - `config.py`: Configuration settings
   - `face_encoder.py`: Face encoding and model training
   - `face_recognizer.py`: Face recognition algorithms
+  - `guided_registration.py`: Guided user registration with head pose detection
+  - `head_pose_detector.py`: Head pose estimation and analysis
+  - `head_pose_demo.py`: Demo application for head pose detection
   - `main.py`: Command-line interface
   - `utils.py`: Utility functions
 
@@ -131,10 +175,12 @@ If you experience incorrect identifications:
 1. **Choose the right model**: 
    - Use CNN model for higher accuracy (requires GPU)
    - Use HOG model for faster processing
-2. **Increase training data**: Capture more images (15-20) during registration
-3. **Vary conditions**: Register in different lighting and angles
-4. **Adjust threshold**: Modify the recognition threshold in `BiometricAuth` class
-5. **Consistent lighting**: Ensure good, consistent lighting during authentication
+2. **Use guided registration**: Register with the guided system to capture poses from multiple angles
+3. **Increase training data**: Capture more images per pose (3-5 recommended)
+4. **Vary conditions**: Register in different lighting and angles
+5. **Adjust threshold**: Modify the recognition threshold in `BiometricAuth` class
+6. **Consistent lighting**: Ensure good, consistent lighting during authentication
+7. **Enable head pose verification**: Use `--head-pose` option to require proper face positioning
 
 ## Dependencies
 
@@ -143,6 +189,7 @@ If you experience incorrect identifications:
 - **OpenCV**: For camera handling and image processing
 - **numpy**: For numerical operations
 - **Pillow**: For image manipulation
+- **mediapipe**: For face mesh and head pose detection
 
 ## Future Enhancements
 
