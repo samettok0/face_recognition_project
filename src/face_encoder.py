@@ -1,13 +1,13 @@
 import pickle
+import cv2
+import time
 from pathlib import Path
-from typing import Dict, List, Union, Any, Tuple
+from typing import Dict, List, Union, Any, Tuple, Optional
 import face_recognition
 import logging
 
 from .config import TRAINING_DIR, ENCODINGS_FILE, HOG_MODEL
-from .utils import get_logger
-
-logger = get_logger(__name__)
+from .utils import logger
 
 class FaceEncoder:
     def __init__(self, model: str = HOG_MODEL, encodings_path: Path = ENCODINGS_FILE):
@@ -108,9 +108,8 @@ class FaceEncoder:
             True if successful, False otherwise
         """
         try:
-            # Create directory for this person if it doesn't exist
+            # Use the directory created in config.py
             person_dir = TRAINING_DIR / name
-            person_dir.mkdir(exist_ok=True)
             
             # Get the next available filename
             existing_files = list(person_dir.glob("*.jpg"))
@@ -129,4 +128,76 @@ class FaceEncoder:
             return True
         except Exception as e:
             logger.error(f"Error adding face: {e}")
-            return False 
+            return False
+            
+    def register_person_from_camera(self, camera, name: str, num_images: int = 10) -> bool:
+        """
+        Register a new person by capturing their face from camera
+        
+        Args:
+            camera: Camera handler instance
+            name: Name of the person
+            num_images: Number of images to capture
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        # Normalize the name (lowercase, replace spaces with underscores)
+        normalized_name = name.lower().replace(" ", "_")
+        
+        logger.info(f"Starting registration for {normalized_name}")
+        
+        if not camera.start():
+            logger.error("Failed to start camera for registration")
+            return False
+        
+        try:
+            saved_paths = []
+            count = 0
+            
+            print(f"Capturing {num_images} photos for {name}...")
+            print("Position your face in the camera and press SPACE to capture each photo.")
+            print("Press ESC to cancel.")
+            
+            while count < num_images:
+                # Get frame
+                frame = camera.get_frame()
+                if frame is None:
+                    time.sleep(0.1)
+                    continue
+                
+                # Display with instruction
+                cv2.putText(frame, f"Press SPACE to capture ({count+1}/{num_images})", 
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                cv2.imshow("Register New Face", frame)
+                
+                # Wait for key press
+                key = cv2.waitKey(1) & 0xFF
+                if key == 27:  # ESC key
+                    logger.info("Registration cancelled by user")
+                    return False
+                elif key == 32:  # SPACE key
+                    # Use the directory created in config.py
+                    person_dir = TRAINING_DIR / normalized_name
+                    
+                    # Generate filename
+                    image_path = str(person_dir / f"{count+1}.jpg")
+                    
+                    # Save image
+                    cv2.imwrite(image_path, frame)
+                    saved_paths.append(image_path)
+                    logger.info(f"Captured image {count+1}/{num_images} for {normalized_name}")
+                    print(f"Captured image {count+1}/{num_images}")
+                    count += 1
+        
+        finally:
+            camera.stop()
+            cv2.destroyAllWindows()
+        
+        if saved_paths:
+            logger.info(f"Successfully captured {len(saved_paths)} images for {normalized_name}")
+            # Re-encode all faces to update the database
+            self.encode_known_faces()
+            return True
+        
+        return False 

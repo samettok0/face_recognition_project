@@ -7,9 +7,7 @@ from PIL import Image, ImageDraw
 
 from .config import HOG_MODEL, ENCODINGS_FILE
 from .face_encoder import FaceEncoder
-from .utils import draw_bounding_box, get_logger
-
-logger = get_logger(__name__)
+from .utils import draw_bounding_box, logger, draw_recognition_feedback_on_frame
 
 class FaceRecognizer:
     def __init__(self, model: str = HOG_MODEL, recognition_threshold: float = 0.5):
@@ -30,6 +28,28 @@ class FaceRecognizer:
         """Reload face encodings from disk"""
         self.loaded_encodings = self.face_encoder.load_encodings()
         return len(self.loaded_encodings.get("encodings", []))
+
+    def _detect_and_encode_faces(self, image: np.ndarray) -> Tuple[List[Tuple[int, int, int, int]], List[np.ndarray]]:
+        """
+        Detect faces and create face encodings for an image
+        
+        Args:
+            image: Input image as numpy array
+            
+        Returns:
+            Tuple of (face_locations, face_encodings)
+        """
+        # Detect faces
+        face_locations = face_recognition.face_locations(
+            image, model=self.model
+        )
+        
+        # Create encodings for detected faces
+        face_encodings = face_recognition.face_encodings(
+            image, face_locations
+        )
+        
+        return face_locations, face_encodings
         
     def recognize_faces(self, image_location: str, display_result: bool = True) -> List[Tuple[Tuple[int, int, int, int], str]]:
         """
@@ -44,28 +64,16 @@ class FaceRecognizer:
         """
         logger.info(f"Recognizing faces in {image_location}")
         
-        # Load encodings
-        loaded_encodings = self.face_encoder.load_encodings()
-        
-        # Load and process the input image
+        # Load the input image
         input_image = face_recognition.load_image_file(image_location)
         
         # Detect faces and create their encodings
-        input_face_locations = face_recognition.face_locations(
-            input_image, model=self.model
-        )
-        input_face_encodings = face_recognition.face_encodings(
-            input_image, input_face_locations
-        )
+        input_face_locations, input_face_encodings = self._detect_and_encode_faces(input_image)
         
         # Process each detected face
         results = []
-        for bounding_box, unknown_encoding in zip(
-            input_face_locations, input_face_encodings
-        ):
-            name = self._recognize_face(unknown_encoding, loaded_encodings)
-            if not name:
-                name = "Unknown"
+        for bounding_box, unknown_encoding in zip(input_face_locations, input_face_encodings):
+            name, confidence = self._recognize_face_with_confidence(unknown_encoding)
             results.append((bounding_box, name))
             
         logger.info(f"Found {len(results)} faces in image")
@@ -87,18 +95,11 @@ class FaceRecognizer:
             List of tuples containing face locations, names, and confidence scores
         """
         # Detect faces and create their encodings
-        face_locations = face_recognition.face_locations(
-            frame, model=self.model
-        )
-        face_encodings = face_recognition.face_encodings(
-            frame, face_locations
-        )
+        face_locations, face_encodings = self._detect_and_encode_faces(frame)
         
         # Process each detected face
         results = []
-        for bounding_box, unknown_encoding in zip(
-            face_locations, face_encodings
-        ):
+        for bounding_box, unknown_encoding in zip(face_locations, face_encodings):
             name, confidence = self._recognize_face_with_confidence(unknown_encoding)
             results.append((bounding_box, name, confidence))
             
@@ -179,13 +180,15 @@ class FaceRecognizer:
             image: Input image as numpy array
             results: List of face locations and names
         """
-        # Convert to PIL image for drawing
-        pillow_image = Image.fromarray(image)
-        draw = ImageDraw.Draw(pillow_image)
+        # Use the OpenCV-based approach by default - more consistent with video processing
+        annotated_image = draw_recognition_feedback_on_frame(image, results, include_confidence=False)
+        cv2.imshow("Recognition Results", annotated_image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
         
-        # Draw each face
-        for bounding_box, name in results:
-            draw_bounding_box(draw, bounding_box, name)
-            
-        # Display the image
-        pillow_image.show() 
+        # Alternative PIL-based approach (kept for reference)
+        # pillow_image = Image.fromarray(image)
+        # draw = ImageDraw.Draw(pillow_image)
+        # for bounding_box, name in results:
+        #     draw_bounding_box(draw, bounding_box, name)
+        # pillow_image.show() 

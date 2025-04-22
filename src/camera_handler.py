@@ -7,9 +7,7 @@ from datetime import datetime
 from typing import Optional, Tuple, List
 
 from .config import DEFAULT_CAMERA_INDEX, FRAME_WIDTH, FRAME_HEIGHT, OUTPUT_DIR
-from .utils import get_logger
-
-logger = get_logger(__name__)
+from .utils import logger
 
 class CameraHandler:
     def __init__(self, camera_index: int = DEFAULT_CAMERA_INDEX):
@@ -115,46 +113,6 @@ class CameraHandler:
             logger.error(f"Failed to save picture: {e}")
             return frame, ""
             
-    def capture_face(self, name: str, num_images: int = 1, delay: float = 1.0) -> List[str]:
-        """
-        Capture multiple images of a face for training
-        
-        Args:
-            name: Name of the person
-            num_images: Number of images to capture
-            delay: Delay between captures in seconds
-            
-        Returns:
-            List of paths to saved images
-        """
-        person_dir = Path("data/training") / name
-        person_dir.mkdir(parents=True, exist_ok=True)
-        
-        saved_paths = []
-        for i in range(num_images):
-            if i > 0:
-                time.sleep(delay)
-                
-            # Take picture
-            result = self.take_picture()
-            if result is None:
-                continue
-                
-            frame, _ = result
-            
-            # Save with person-specific filename
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            image_path = str(person_dir / f"{timestamp}.jpg")
-            
-            try:
-                cv2.imwrite(image_path, frame)
-                saved_paths.append(image_path)
-                logger.info(f"Captured image {i+1}/{num_images} for {name}")
-            except Exception as e:
-                logger.error(f"Failed to save image: {e}")
-                
-        return saved_paths
-        
     def show_preview(self, window_name: str = "Camera Preview", 
                      process_frame=None, show_fps: bool = True) -> None:
         """

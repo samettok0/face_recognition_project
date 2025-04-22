@@ -9,9 +9,8 @@ from pathlib import Path
 from .face_encoder import FaceEncoder
 from .biometric_auth import BiometricAuth
 from .camera_handler import CameraHandler
-from .utils import get_logger
-
-logger = get_logger(__name__)
+from .utils import logger
+from .config import TRAINING_DIR
 
 def register_new_person(camera_handler, face_encoder):
     """Register a new person by taking their photos and training the model"""
@@ -20,77 +19,28 @@ def register_new_person(camera_handler, face_encoder):
         print("Name cannot be empty.")
         return False
     
-    # Normalize the name (lowercase, replace spaces with underscores)
-    normalized_name = name.lower().replace(" ", "_")
-    
     # Number of training images to capture
     try:
         num_images = int(input("How many photos to capture (default: 10): ") or "10")
     except ValueError:
         num_images = 10
     
-    print(f"\nCapturing {num_images} photos for {name}...")
-    print("Position your face in the camera and press SPACE to capture each photo.")
-    print("Press ESC to cancel.")
+    # Use the centralized method in FaceEncoder
+    success = face_encoder.register_person_from_camera(camera_handler, name, num_images)
     
-    camera = camera_handler
-    if not camera.start():
-        print("Failed to start camera.")
-        return False
-    
-    try:
-        saved_paths = []
-        count = 0
-        
-        while count < num_images:
-            # Get frame
-            frame = camera.get_frame()
-            if frame is None:
-                continue
-            
-            # Display with instruction
-            cv2.putText(frame, f"Press SPACE to capture ({count+1}/{num_images})", 
-                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            cv2.imshow("Register New Face", frame)
-            
-            # Wait for key press
-            key = cv2.waitKey(1) & 0xFF
-            if key == 27:  # ESC key
-                print("Registration cancelled.")
-                return False
-            elif key == 32:  # SPACE key
-                # Save image to person directory
-                person_dir = Path("data/training") / normalized_name
-                person_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Generate filename
-                image_path = str(person_dir / f"{count+1}.jpg")
-                
-                # Save image
-                cv2.imwrite(image_path, frame)
-                saved_paths.append(image_path)
-                print(f"Captured image {count+1}/{num_images}")
-                count += 1
-    
-    finally:
-        camera.stop()
-        cv2.destroyAllWindows()
-    
-    if saved_paths:
-        print(f"Successfully captured {len(saved_paths)} images for {name}.")
-        print("Training the model with new images...")
-        face_encoder.encode_known_faces()
-        print("Training complete!")
+    if success:
+        print(f"Successfully registered {name} and trained the model.")
         return True
-    
-    return False
+    else:
+        print("Registration failed or was cancelled.")
+        return False
 
 def run_authenticate(model: str = "hog"):
     """Run one-time authentication attempt"""
     auth = BiometricAuth(recognition_threshold=0.55, model=model)
     
     # Add all users from training directory as authorized
-    training_dir = Path("data/training")
+    training_dir = TRAINING_DIR
     if training_dir.exists():
         for person_dir in training_dir.iterdir():
             if person_dir.is_dir():
@@ -115,7 +65,7 @@ def run_continuous_monitoring(model: str = "hog"):
     )
     
     # Add all users from training directory as authorized
-    training_dir = Path("data/training")
+    training_dir = TRAINING_DIR
     if training_dir.exists():
         for person_dir in training_dir.iterdir():
             if person_dir.is_dir():
