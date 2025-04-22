@@ -2,6 +2,8 @@
 
 A modern facial recognition system for biometric authentication using computer vision. This system is designed to provide secure access control through real-time face recognition.
 
+Demo Video: https://www.youtube.com/watch?v=Fvyx59dDuRs
+
 ## Overview
 
 This project implements a video-based biometric authentication system that can:
