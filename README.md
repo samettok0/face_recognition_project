@@ -12,6 +12,7 @@ This project implements a video-based biometric authentication system that can:
 - Continuously monitor for authorized faces
 - Detect and analyze head pose for improved user experience
 - Provide guided registration with automatic pose detection
+- Prevent false positives with temporal voting mechanism
 - Provide a foundation for integration with physical lock mechanisms
 - Support both HOG and CNN face detection models
 
@@ -88,26 +89,44 @@ The guided registration creates a more comprehensive dataset with images from mu
 To run a single authentication attempt:
 
 ```
-python -m src.main auth [--model {hog,cnn}]
+python -m src.main auth [--model {hog,cnn}] [--anti-spoofing] [--window WINDOW] [--min-live MIN_LIVE] [--min-match MIN_MATCH] [--live-threshold LIVE_THRESHOLD]
 ```
 
 Options:
 - `--model hog`: Use HOG model (faster, works on CPU)
 - `--model cnn`: Use CNN model (more accurate, requires GPU)
+- `--anti-spoofing`: Enable anti-spoofing detection
+- `--window`: Number of recent frames to keep for decision gate (default: 15)
+- `--min-live`: Minimum number of frames that must pass liveness check (default: 12)
+- `--min-match`: Minimum number of frames that must match an authorized user (default: 12)
+- `--live-threshold`: Threshold for liveness detection (0.0-1.0, default: 0.9)
 
 This will activate the camera and attempt to authenticate any face it detects against registered users.
+
+Common usage examples:
+```
+# Standard authentication with anti-spoofing
+python -m src.main auth --anti-spoofing
+
+# Faster authentication (~1 second response)
+python -m src.main auth --anti-spoofing --window 10 --min-live 8 --min-match 8
+
+# More secure authentication (requires more consistent matching)
+python -m src.main auth --anti-spoofing --window 20 --min-live 18 --min-match 18
+```
 
 ### Continuous Monitoring
 
 For ongoing authentication (e.g., to control access to a secure area):
 
 ```
-python -m src.main monitor [--model {hog,cnn}]
+python -m src.main monitor [--model {hog,cnn}] [--anti-spoofing]
 ```
 
 Options:
 - `--model hog`: Use HOG model (faster, works on CPU)
 - `--model cnn`: Use CNN model (more accurate, requires GPU)
+- `--anti-spoofing`: Enable anti-spoofing detection
 
 This mode continuously checks for authorized faces and triggers the authentication process when a face is detected.
 
@@ -156,18 +175,53 @@ The system supports two face detection models:
    - Slower processing speed
    - Recommended for high-security applications
 
+## Temporal Voting Mechanism
+
+The system implements a temporal voting gate to prevent false positives from momentary misidentifications or spoofing attacks. This ensures that authentication only succeeds when there's consistent evidence over time.
+
+### How It Works
+
+1. The system maintains sliding windows of recent results for:
+   - Liveness detection (is the face real)
+   - Face matching (is it an authorized person)
+
+2. Authentication succeeds only when both criteria pass consistently:
+   - At least X frames out of the last Y frames must pass liveness check
+   - At least Z frames out of the last Y frames must pass face matching
+
+3. This prevents single-frame errors from triggering false authentication, such as:
+   - Momentary incorrect face matches
+   - Brief spoofing attempts
+   - Camera glitches or processing errors
+
+### Configuration Parameters
+
+- `window`: Total number of recent frames to consider (default: 15)
+- `min-live`: Minimum frames that must pass liveness check (default: 12)
+- `min-match`: Minimum frames that must match an authorized user (default: 12)
+
+### Timing Estimates
+
+- Default settings (~15 frames at 7-8 FPS): ≈ 2 seconds
+- Faster settings (10 frames, 8 required): ≈ 1.25 seconds 
+- More secure (20 frames, 18 required): ≈ 2.5 seconds
+
+Adjust these parameters based on your security requirements and desired response speed.
+
 ## Project Structure
 
 - `src/`
   - `biometric_auth.py`: Core authentication functionality
   - `camera_handler.py`: Camera management and frame capture
   - `config.py`: Configuration settings
+  - `decision_gate.py`: Temporal voting mechanism
   - `face_encoder.py`: Face encoding and model training
   - `face_recognizer.py`: Face recognition algorithms
   - `guided_registration.py`: Guided user registration with head pose detection
   - `head_pose_detector.py`: Head pose estimation and analysis
   - `head_pose_demo.py`: Demo application for head pose detection
   - `main.py`: Command-line interface
+  - `anti_spoofing.py`: Liveness detection to prevent spoofing
   - `utils.py`: Utility functions
 
 ## Improving Recognition Accuracy
@@ -183,6 +237,7 @@ If you experience incorrect identifications:
 5. **Adjust threshold**: Modify the recognition threshold in `BiometricAuth` class
 6. **Consistent lighting**: Ensure good, consistent lighting during authentication
 7. **Enable head pose verification**: Use `--head-pose` option to require proper face positioning
+8. **Adjust temporal voting**: Increase window size and threshold for higher security
 
 ## Dependencies
 
@@ -192,12 +247,13 @@ If you experience incorrect identifications:
 - **numpy**: For numerical operations
 - **Pillow**: For image manipulation
 - **mediapipe**: For face mesh and head pose detection
+- **deepface**: For anti-spoofing detection
 
 ## Future Enhancements
 
 - Hardware integration for physical lock control
 - Multi-factor authentication
-- Liveness detection to prevent spoofing
+- Advanced liveness detection methods
 - Mobile app control
 
 ## Anti-Spoofing Detection
@@ -252,7 +308,7 @@ This provides robust protection against common spoofing attempts using:
 - Video replays
 - Some types of masks
 
-For maximum security, enable both anti-spoofing and use the CNN model.
+For maximum security, enable both anti-spoofing and use the CNN model with stricter temporal voting parameters.
 
 ## Contributing
 
