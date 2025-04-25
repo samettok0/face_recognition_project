@@ -4,6 +4,7 @@ import numpy as np
 import threading
 import queue
 from typing import Optional, Callable, List, Tuple
+from deepface import DeepFace
 
 from .camera_handler import CameraHandler
 from .face_recognizer import FaceRecognizer
@@ -13,7 +14,8 @@ class BiometricAuth:
     def __init__(self, recognition_threshold: float = 0.6,
                  consecutive_matches_required: int = 3,
                  model: str = "hog",
-                 use_threading: bool = True):
+                 use_threading: bool = True,
+                 use_anti_spoofing: bool = True):
         """
         Initialize the biometric authentication system
         
@@ -22,12 +24,14 @@ class BiometricAuth:
             consecutive_matches_required: Number of consecutive matches required for auth
             model: Face detection model to use (hog or cnn)
             use_threading: Whether to use a separate thread for face recognition
+            use_anti_spoofing: Whether to enable anti-spoofing checks
         """
         self.camera = CameraHandler()
         self.recognizer = FaceRecognizer(model=model, 
                                          recognition_threshold=recognition_threshold)
         self.consecutive_matches_required = consecutive_matches_required
         self.authorized_users = set()
+        self.use_anti_spoofing = use_anti_spoofing
         
         # Threading-related attributes
         self.use_threading = use_threading
@@ -57,6 +61,44 @@ class BiometricAuth:
                 
                 # Process frame and get recognition results
                 results = self.recognizer.recognize_face_in_frame(frame)
+                
+                # Check for anti-spoofing if enabled
+                if self.use_anti_spoofing and results:
+                    # Create a copy for anti-spoofing (we need the original frame for display)
+                    frame_copy = frame.copy()
+                    verified_results = []
+                    
+                    for bbox, name, confidence in results:
+                        # Extract face region for anti-spoofing check
+                        top, right, bottom, left = bbox
+                        face_img = frame_copy[top:bottom, left:right]
+                        
+                        # Only perform anti-spoofing on faces that were recognized
+                        if name != "Unknown" and name in self.authorized_users:
+                            try:
+                                # Perform anti-spoofing check using DeepFace
+                                face_objs = DeepFace.extract_faces(img_path=face_img, 
+                                                                 anti_spoofing=True,
+                                                                 enforce_detection=False)
+                                
+                                # Check if face is real
+                                is_real = all(face_obj.get("is_real", False) for face_obj in face_objs)
+                                
+                                if is_real:
+                                    verified_results.append((bbox, name, confidence))
+                                else:
+                                    verified_results.append((bbox, "Fake", confidence))
+                                    logger.warning(f"Fake face detected during authentication attempt for {name}")
+                            except Exception as e:
+                                logger.error(f"Anti-spoofing check failed: {e}")
+                                # Still include the face but mark as potentially unsafe
+                                verified_results.append((bbox, name, confidence))
+                        else:
+                            # For unknown faces, just pass through
+                            verified_results.append((bbox, name, confidence))
+                    
+                    # Update results with anti-spoofing check
+                    results = verified_results
                 
                 # Put results in results queue
                 self.results_queue.put(results)
@@ -138,6 +180,44 @@ class BiometricAuth:
                 else:
                     # Process frame directly if not using threading
                     results = self.recognizer.recognize_face_in_frame(frame)
+                    
+                    # Perform anti-spoofing check without threading
+                    if self.use_anti_spoofing and results:
+                        # Create a copy for anti-spoofing
+                        frame_copy = frame.copy()
+                        verified_results = []
+                        
+                        for bbox, name, confidence in results:
+                            # Extract face region for anti-spoofing check
+                            top, right, bottom, left = bbox
+                            face_img = frame_copy[top:bottom, left:right]
+                            
+                            # Only perform anti-spoofing on faces that were recognized
+                            if name != "Unknown" and name in self.authorized_users:
+                                try:
+                                    # Perform anti-spoofing check using DeepFace
+                                    face_objs = DeepFace.extract_faces(img_path=face_img, 
+                                                                     anti_spoofing=True,
+                                                                     enforce_detection=False)
+                                    
+                                    # Check if face is real
+                                    is_real = all(face_obj.get("is_real", False) for face_obj in face_objs)
+                                    
+                                    if is_real:
+                                        verified_results.append((bbox, name, confidence))
+                                    else:
+                                        verified_results.append((bbox, "Fake", confidence))
+                                        logger.warning(f"Fake face detected during authentication attempt for {name}")
+                                except Exception as e:
+                                    logger.error(f"Anti-spoofing check failed: {e}")
+                                    # Still include the face but mark as potentially unsafe
+                                    verified_results.append((bbox, name, confidence))
+                            else:
+                                # For unknown faces, just pass through
+                                verified_results.append((bbox, name, confidence))
+                        
+                        # Update results with anti-spoofing check
+                        results = verified_results
                 
                 # Show feedback on frame
                 annotated_frame = draw_recognition_feedback_on_frame(frame, results)
@@ -148,35 +228,35 @@ class BiometricAuth:
                     break
                 
                 # Check for authorized users
-                for _, name, confidence in results:
-                    if name != "Unknown" and name in self.authorized_users:
-                        # Reset consecutive matches for all other users in single auth mode
-                        if single_authentication:
-                            for other_name in consecutive_matches:
-                                if other_name != name:
-                                    consecutive_matches[other_name] = 0
-                                
-                        # Increment match count for this user
-                        consecutive_matches[name] = consecutive_matches.get(name, 0) + 1
+                for bbox, name, confidence in results:
+                    # Skip unauthorized or fake faces
+                    if name == "Unknown" or name == "Fake" or name not in self.authorized_users:
+                        continue
                         
-                        # Check if we have enough consecutive matches
-                        if consecutive_matches[name] >= self.consecutive_matches_required:
-                            logger.info(f"Authentication successful: {name}" +
-                                       (f" (confidence: {confidence:.2f})" if single_authentication else ""))
-                            self.unlock_lock(name)
+                    # Reset consecutive matches for all other users in single auth mode
+                    if single_authentication:
+                        for other_name in consecutive_matches:
+                            if other_name != name:
+                                consecutive_matches[other_name] = 0
                             
-                            if single_authentication:
-                                return True, name
-                            elif on_success:
-                                on_success(name)
-                                
-                            # In continuous mode, reset and continue after success
-                            if not single_authentication:
-                                consecutive_matches = {}
-                                time.sleep(3)  # Wait before next authentication attempt
-                    elif not single_authentication:
-                        # Reset counter if we don't see an authorized person (continuous mode only)
-                        consecutive_matches = {}
+                    # Increment match count for this user
+                    consecutive_matches[name] = consecutive_matches.get(name, 0) + 1
+                    
+                    # Check if we have enough consecutive matches
+                    if consecutive_matches[name] >= self.consecutive_matches_required:
+                        logger.info(f"Authentication successful: {name}" +
+                                   (f" (confidence: {confidence:.2f})" if single_authentication else ""))
+                        self.unlock_lock(name)
+                        
+                        if single_authentication:
+                            return True, name
+                        elif on_success:
+                            on_success(name)
+                            
+                        # In continuous mode, reset and continue after success
+                        if not single_authentication:
+                            consecutive_matches = {}
+                            time.sleep(3)  # Wait before next authentication attempt
                 
                 attempt += 1
                 time.sleep(0.03 if not single_authentication else 0.1)  # Small delay between frames

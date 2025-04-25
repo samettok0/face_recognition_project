@@ -12,6 +12,7 @@ from .camera_handler import CameraHandler
 from .head_pose_detector import HeadPoseDetector
 from .head_pose_demo import run_head_pose_demo
 from .guided_registration import register_user_guided
+from .anti_spoofing import AntiSpoofing
 from .utils import logger
 from .config import TRAINING_DIR
 
@@ -38,9 +39,13 @@ def register_new_person(camera_handler, face_encoder):
         print("Registration failed or was cancelled.")
         return False
 
-def run_authenticate(model: str = "hog"):
+def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False):
     """Run one-time authentication attempt"""
-    auth = BiometricAuth(recognition_threshold=0.55, model=model)
+    auth = BiometricAuth(
+        recognition_threshold=0.55, 
+        model=model,
+        use_anti_spoofing=use_anti_spoofing
+    )
     
     # Add all users from training directory as authorized
     training_dir = TRAINING_DIR
@@ -49,7 +54,8 @@ def run_authenticate(model: str = "hog"):
             if person_dir.is_dir():
                 auth.add_authorized_user(person_dir.name)
     
-    print("Starting authentication...")
+    anti_spoof_msg = " with anti-spoofing" if use_anti_spoofing else ""
+    print(f"Starting authentication{anti_spoof_msg}...")
     print("Looking for authorized user. Press 'q' to quit.")
     
     success, username = auth.authenticate(max_attempts=30, timeout=20)
@@ -59,12 +65,13 @@ def run_authenticate(model: str = "hog"):
     else:
         print("❌ Authentication failed")
 
-def run_continuous_monitoring(model: str = "hog"):
+def run_continuous_monitoring(model: str = "hog", use_anti_spoofing: bool = False):
     """Run continuous monitoring and authentication"""
     auth = BiometricAuth(
         recognition_threshold=0.55,  # Adjust based on your needs
         consecutive_matches_required=3,  # How many frames must match
-        model=model
+        model=model,
+        use_anti_spoofing=use_anti_spoofing
     )
     
     # Add all users from training directory as authorized
@@ -75,10 +82,20 @@ def run_continuous_monitoring(model: str = "hog"):
                 auth.add_authorized_user(person_dir.name)
                 print(f"Authorized user: {person_dir.name}")
     
-    print("Starting continuous monitoring...")
+    anti_spoof_msg = " with anti-spoofing" if use_anti_spoofing else ""
+    print(f"Starting continuous monitoring{anti_spoof_msg}...")
     print("Looking for authorized users. Press 'q' to quit.")
     
     auth.run_continuous_monitoring()
+
+def run_anti_spoofing_demo(camera_index: int = 0):
+    """Run the anti-spoofing demo to detect fake vs real faces"""
+    print("Starting anti-spoofing demonstration...")
+    print("This will detect if a face is real or fake.")
+    print("Press 'q' to quit.")
+    
+    spoof_detector = AntiSpoofing()
+    spoof_detector.run_demo(camera_index=camera_index)
 
 def main():
     parser = argparse.ArgumentParser(description="Face Recognition Authentication System")
@@ -94,12 +111,16 @@ def main():
                                       help="Run one-time authentication")
     auth_parser.add_argument("--model", choices=["hog", "cnn"], default="hog",
                            help="Face detection model to use (hog is faster, cnn is more accurate)")
+    auth_parser.add_argument("--anti-spoofing", action="store_true",
+                           help="Enable anti-spoofing detection to prevent fake face attacks")
     
     # Monitor command
     monitor_parser = subparsers.add_parser("monitor", 
                                         help="Run continuous monitoring for authorized faces")
     monitor_parser.add_argument("--model", choices=["hog", "cnn"], default="hog",
                               help="Face detection model to use (hog is faster, cnn is more accurate)")
+    monitor_parser.add_argument("--anti-spoofing", action="store_true",
+                              help="Enable anti-spoofing detection to prevent fake face attacks")
     
     # Regular Register command
     register_parser = subparsers.add_parser("register", 
@@ -112,6 +133,12 @@ def main():
     # Head pose demo command
     head_pose_parser = subparsers.add_parser("head_pose", 
                                          help="Run head pose detection demo")
+                                         
+    # Anti-spoofing demo command
+    anti_spoof_parser = subparsers.add_parser("anti_spoof",
+                                          help="Run anti-spoofing detection demo")
+    anti_spoof_parser.add_argument("--camera", type=int, default=0,
+                                help="Camera index to use (default: 0)")
     
     # Parse arguments
     args = parser.parse_args()
@@ -124,10 +151,10 @@ def main():
         print("Training complete!")
         
     elif args.command == "auth":
-        run_authenticate(model=args.model)
+        run_authenticate(model=args.model, use_anti_spoofing=args.anti_spoofing)
         
     elif args.command == "monitor":
-        run_continuous_monitoring(model=args.model)
+        run_continuous_monitoring(model=args.model, use_anti_spoofing=args.anti_spoofing)
         
     elif args.command == "register":
         camera = CameraHandler()
@@ -139,6 +166,9 @@ def main():
         
     elif args.command == "head_pose":
         run_head_pose_demo()
+        
+    elif args.command == "anti_spoof":
+        run_anti_spoofing_demo(camera_index=args.camera)
         
     else:
         parser.print_help()

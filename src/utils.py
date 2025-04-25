@@ -114,6 +114,10 @@ def draw_recognition_feedback_on_frame(frame: np.ndarray,
             # Red color for unknown faces (BGR format)
             main_color = (50, 50, 220)  # Darker red
             text_bg_color = (80, 80, 255)  # Brighter red
+        elif name == "Fake":
+            # Purple color for fake/spoofed faces (BGR format)
+            main_color = (220, 50, 220)  # Darker purple
+            text_bg_color = (255, 80, 255)  # Brighter purple
         else:
             # Green color for known faces
             main_color = (50, 180, 50)  # Darker green

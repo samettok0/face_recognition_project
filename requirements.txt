@@ -7,3 +7,4 @@ mediapipe==0.10.11
 numpy==1.24.2
 opencv-python==4.11.0.86
 pillow==11.1.0
+deepface==0.0.86

@@ -200,6 +200,60 @@ If you experience incorrect identifications:
 - Liveness detection to prevent spoofing
 - Mobile app control
 
+## Anti-Spoofing Detection
+
+The system includes anti-spoofing detection to prevent unauthorized access using photos, videos, or masks. This feature uses DeepFace's anti-spoofing capabilities to distinguish between real faces and fake presentations.
+
+### Anti-Spoofing Demo
+
+To run the anti-spoofing detection demo:
+
+```
+python -m src.main anti_spoof [--camera CAMERA_INDEX]
+```
+
+Options:
+- `--camera`: Camera index to use (default: 0)
+
+This demo will show real-time detection of real vs. fake faces, helping you understand how the anti-spoofing system works.
+
+### Using Anti-Spoofing with Authentication
+
+To enable anti-spoofing during authentication:
+
+```
+python -m src.main auth --anti-spoofing [--model {hog,cnn}]
+```
+
+For continuous monitoring with anti-spoofing:
+
+```
+python -m src.main monitor --anti-spoofing [--model {hog,cnn}]
+```
+
+When anti-spoofing is enabled, the system will:
+1. Detect faces as usual
+2. Perform recognition to identify the person
+3. Run additional checks to ensure the face is real, not a photo or video
+4. Mark fake faces with a purple label and refuse authentication
+
+This provides an additional layer of security against presentation attacks.
+
+### How Anti-Spoofing Works
+
+The anti-spoofing system uses computer vision techniques to analyze:
+- Texture patterns that distinguish real skin from printed photos
+- Micro-movements that would be present in real faces but not in static images
+- Depth information that helps identify flat surfaces vs. 3D faces
+
+This provides robust protection against common spoofing attempts using:
+- Printed photos
+- Digital images on screens
+- Video replays
+- Some types of masks
+
+For maximum security, enable both anti-spoofing and use the CNN model.
+
 ## Contributing
 
 Feel free to submit issues or pull requests for improvements or bug fixes.
