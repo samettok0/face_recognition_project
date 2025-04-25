@@ -2,12 +2,14 @@ import logging
 import os
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw
-from typing import Tuple, List, Any, Optional
+from PIL import Image, ImageDraw, ImageFont
+from typing import Tuple, List, Any, Optional, Dict, Union
 from .config import BOUNDING_BOX_COLOR, TEXT_COLOR, LOG_FILE, LOG_FORMAT
 import time
 
 # Configure logging once at module level
+# Note: For multi-process applications, this should be guarded with 
+# if __name__ == "__main__": to avoid duplicate handlers
 logging.basicConfig(
     filename=LOG_FILE,
     level=logging.INFO,
@@ -17,30 +19,70 @@ logging.basicConfig(
 # Create a global logger instance
 logger = logging.getLogger("face_recognition")
 
-def draw_bounding_box(draw: ImageDraw, bounding_box: Tuple[int, int, int, int], name: str) -> None:
+# Color conversion helpers
+def color_name_to_bgr(color_name: str) -> Tuple[int, int, int]:
     """
-    Draws a bounding box and name label for a detected face.
+    Convert color name to BGR tuple for OpenCV
+    
+    Args:
+        color_name: String name of the color (e.g., "blue", "white")
+        
+    Returns:
+        BGR tuple for OpenCV functions
+    """
+    color_map = {
+        "blue": (255, 0, 0),     # BGR format
+        "green": (0, 255, 0),
+        "red": (0, 0, 255),
+        "white": (255, 255, 255),
+        "black": (0, 0, 0),
+    }
+    return color_map.get(color_name.lower(), (255, 255, 255))  # Default to white
+
+def draw_bounding_box(draw: ImageDraw, 
+                     bounding_box: Tuple[int, int, int, int],
+                     name: str,
+                     box_color: str = BOUNDING_BOX_COLOR,
+                     text_color: str = TEXT_COLOR) -> None:
+    """
+    Draw a bounding box with a name on a PIL Image
     
     Args:
         draw: PIL ImageDraw object
-        bounding_box: Face location coordinates (top, right, bottom, left)
-        name: Name to display for the face
+        bounding_box: Tuple of (top, right, bottom, left) coordinates
+        name: Name to display
+        box_color: Color to use for the bounding box
+        text_color: Color to use for the text
     """
     top, right, bottom, left = bounding_box
-    draw.rectangle(((left, top), (right, bottom)), outline=BOUNDING_BOX_COLOR, width=3)
-    text_left, text_top, text_right, text_bottom = draw.textbbox(
-        (left, bottom), name
-    )
-    draw.rectangle(
-        ((text_left, text_top), (text_right, text_bottom)),
-        fill=BOUNDING_BOX_COLOR,
-        outline=BOUNDING_BOX_COLOR,
-    )
-    draw.text(
-        (text_left, text_top),
-        name,
-        fill=TEXT_COLOR,
-    )
+    
+    # Draw the box
+    draw.rectangle([(left, top), (right, bottom)], outline=box_color, width=2)
+    
+    # Get text size - works with all PIL versions
+    try:
+        # For newer PIL versions
+        font = draw.getfont()
+        text_width, text_height = font.getsize(name)
+    except (AttributeError, TypeError):
+        try:
+            # For PIL 9.2.0+
+            font = ImageFont.load_default()
+            left, top, right, bottom = font.getbbox(name)
+            text_width, text_height = right - left, bottom - top
+        except:
+            # Fallback for older PIL versions
+            text_width, text_height = draw.textsize(name)
+    
+    text_left = left
+    text_bottom = bottom + text_height
+    
+    # Draw a filled rectangle for the text background
+    draw.rectangle([(text_left, bottom), (text_left + text_width, text_bottom)], 
+                   fill=box_color)
+    
+    # Draw the text
+    draw.text((text_left, bottom), name, fill=text_color)
 
 def draw_recognition_feedback_on_frame(frame: np.ndarray, 
                                       results: List[Tuple[Any, ...]], 
@@ -188,10 +230,14 @@ def create_flash_effect(frame: np.ndarray, flash_duration: float = 0.1) -> None:
     white_overlay = np.ones((h, w, 3), dtype=np.uint8) * 255
     
     # Create a gradually fading flash effect
+    # Limit to approximately 10 frames total to maintain performance
     start_time = time.time()
-    while time.time() - start_time < flash_duration:
+    max_frames = 10
+    frame_time = flash_duration / max_frames
+    
+    for i in range(max_frames):
         # Calculate elapsed percentage
-        elapsed = (time.time() - start_time) / flash_duration
+        elapsed = i / max_frames
         
         # Alpha starts at 0.9 and decreases to 0
         alpha = max(0, 0.9 * (1 - elapsed))
@@ -202,3 +248,9 @@ def create_flash_effect(frame: np.ndarray, flash_duration: float = 0.1) -> None:
         # Display the flash effect
         cv2.imshow("Registration", blended)
         cv2.waitKey(1)
+        
+        # Control frame rate by sleeping until next frame time
+        frame_end_time = start_time + (i + 1) * frame_time
+        sleep_time = max(0, frame_end_time - time.time())
+        if sleep_time > 0:
+            time.sleep(sleep_time)

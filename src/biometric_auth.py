@@ -1,6 +1,8 @@
 import cv2
 import time
 import numpy as np
+import threading
+import queue
 from typing import Optional, Callable, List, Tuple
 
 from .camera_handler import CameraHandler
@@ -10,7 +12,8 @@ from .utils import logger, draw_recognition_feedback_on_frame
 class BiometricAuth:
     def __init__(self, recognition_threshold: float = 0.6,
                  consecutive_matches_required: int = 3,
-                 model: str = "hog"):
+                 model: str = "hog",
+                 use_threading: bool = True):
         """
         Initialize the biometric authentication system
         
@@ -18,12 +21,20 @@ class BiometricAuth:
             recognition_threshold: Threshold for face recognition (0-1, higher = stricter)
             consecutive_matches_required: Number of consecutive matches required for auth
             model: Face detection model to use (hog or cnn)
+            use_threading: Whether to use a separate thread for face recognition
         """
         self.camera = CameraHandler()
         self.recognizer = FaceRecognizer(model=model, 
                                          recognition_threshold=recognition_threshold)
         self.consecutive_matches_required = consecutive_matches_required
         self.authorized_users = set()
+        
+        # Threading-related attributes
+        self.use_threading = use_threading
+        self.recognition_thread = None
+        self.processing_queue = queue.Queue(maxsize=1)  # Only process most recent frame
+        self.results_queue = queue.Queue()
+        self.should_stop = threading.Event()
         
     def add_authorized_user(self, username: str) -> None:
         """Add a user to the authorized users list"""
@@ -35,6 +46,33 @@ class BiometricAuth:
         if username in self.authorized_users:
             self.authorized_users.remove(username)
             logger.info(f"Removed {username} from authorized users")
+    
+    def _recognition_worker(self):
+        """Worker function for face recognition thread"""
+        logger.info("Face recognition thread started")
+        while not self.should_stop.is_set():
+            try:
+                # Get the newest frame from the queue with timeout
+                frame = self.processing_queue.get(timeout=0.1)
+                
+                # Process frame and get recognition results
+                results = self.recognizer.recognize_face_in_frame(frame)
+                
+                # Put results in results queue
+                self.results_queue.put(results)
+                
+                # Mark task as done
+                self.processing_queue.task_done()
+            except queue.Empty:
+                # No frame available, just continue
+                continue
+            except Exception as e:
+                logger.error(f"Error in recognition thread: {e}")
+                # Mark task as done if we had a frame
+                if not self.processing_queue.empty():
+                    self.processing_queue.task_done()
+        
+        logger.info("Face recognition thread stopped")
     
     def _initialize_camera_and_process_frames(self, 
                                             window_name: str,
@@ -64,15 +102,42 @@ class BiometricAuth:
             start_time = time.time()
             consecutive_matches = {}  # username -> count
             
+            # Start recognition thread if using threading
+            if self.use_threading:
+                self.should_stop.clear()
+                self.recognition_thread = threading.Thread(target=self._recognition_worker)
+                self.recognition_thread.daemon = True
+                self.recognition_thread.start()
+            
+            last_results = []
             attempt = 0
             while (single_authentication and attempt < max_attempts and (time.time() - start_time) < timeout) or not single_authentication:
                 frame = self.camera.get_frame()
                 if frame is None:
                     time.sleep(0.1)
                     continue
-                    
+                
                 # Process frame and get recognition results
-                results = self.recognizer.recognize_face_in_frame(frame)
+                if self.use_threading:
+                    # Put frame in queue for processing
+                    # If queue is full, replace the old frame (we only care about the latest frame)
+                    if self.processing_queue.full():
+                        try:
+                            self.processing_queue.get_nowait()
+                        except queue.Empty:
+                            pass
+                    self.processing_queue.put(frame)
+                    
+                    # Get results if available, otherwise use last results
+                    try:
+                        results = self.results_queue.get_nowait()
+                        last_results = results
+                        self.results_queue.task_done()
+                    except queue.Empty:
+                        results = last_results
+                else:
+                    # Process frame directly if not using threading
+                    results = self.recognizer.recognize_face_in_frame(frame)
                 
                 # Show feedback on frame
                 annotated_frame = draw_recognition_feedback_on_frame(frame, results)
@@ -122,6 +187,11 @@ class BiometricAuth:
             return False, None  # Should not reach here in continuous mode
                 
         finally:
+            # Stop recognition thread if using threading
+            if self.use_threading and self.recognition_thread:
+                self.should_stop.set()
+                self.recognition_thread.join(timeout=1.0)
+            
             self.camera.stop()
             cv2.destroyAllWindows()
     
