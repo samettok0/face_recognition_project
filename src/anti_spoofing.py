@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 from typing import Dict, List, Tuple, Union, Optional, Any
 from deepface import DeepFace
-from .utils import logger, draw_recognition_feedback_on_frame
+from .utils import logger, draw_recognition_feedback_on_frame, resize_for_deepface
 
 # Default threshold for live detection
 LIVE_THRESHOLD = 0.5
@@ -34,64 +34,37 @@ class AntiSpoofing:
     def is_live(self, frame) -> bool:
         """Determine if a frame contains a live face"""
         try:
-            face_objs = DeepFace.extract_faces(img_path=frame, 
-                                              anti_spoofing=True,
-                                              enforce_detection=False)
+            # Resize frame for better performance on Raspberry Pi
+            resized_frame = resize_for_deepface(frame)
+            logger.info(f"Resized frame from {frame.shape[1]}x{frame.shape[0]} to 320x240 for DeepFace")
+            
+            # Use OpenCV detector for faster processing on Raspberry Pi
+            face_objs = DeepFace.extract_faces(
+                img_path=resized_frame, 
+                anti_spoofing=True,
+                enforce_detection=False,
+                detector_backend="opencv"  # Use lighter OpenCV detector for Pi
+            )
             
             if not face_objs:
                 logger.warning("No faces detected in anti-spoofing check")
                 return False
-                
-            # Debug: Print the structure of face_objs
-            logger.info(f"Face objects: {face_objs[0].keys()}")
             
-            # Different DeepFace versions return different data structures
-            # Try all possible paths to find liveness score
+            # Check if any face is real - DeepFace's anti_spoofing adds 'is_real' property
             for face_obj in face_objs:
-                # Debug the face object structure
-                logger.info(f"Face keys: {list(face_obj.keys())}")
-                
-                # Try different possible paths for liveness score
-                prob_live = None
-                
-                # Path 1: face_obj.get("is_real", False)
-                if "is_real" in face_obj:
-                    logger.info(f"Using 'is_real' key: {face_obj['is_real']}")
-                    return face_obj["is_real"]
-                
-                # Path 2: face_obj.get("spoofing", {}).get("live_score", 0.0)
-                if "spoofing" in face_obj and isinstance(face_obj["spoofing"], dict):
-                    if "live_score" in face_obj["spoofing"]:
-                        prob_live = face_obj["spoofing"]["live_score"]
-                        logger.info(f"Found live_score in spoofing: {prob_live}")
-                        if prob_live > LIVE_THRESHOLD:
-                            return True
-                
-                # Path 3: deepfake/liveness properties
-                if "deepfake" in face_obj:
-                    deepfake_score = face_obj.get("deepfake", {}).get("score", 1.0)
-                    logger.info(f"Found deepfake score: {deepfake_score}")
-                    # Lower score means less likely to be fake
-                    if deepfake_score < 0.5:  
-                        return True
-                
-                # Path 4: anti_spoof properties 
-                if "anti_spoof" in face_obj:
-                    spoof_score = face_obj.get("anti_spoof", {}).get("score", 1.0)
-                    logger.info(f"Found anti_spoof score: {spoof_score}")
-                    # Lower score means less likely to be spoofed
-                    if spoof_score < 0.5:
-                        return True
+                if "is_real" in face_obj and face_obj["is_real"]:
+                    logger.info("Live face detected")
+                    return True
             
-            # For debugging, temporary workaround to always pass liveness
-            # Remove this in production
-            logger.warning("No liveness score found in any format - FORCING TRUE for testing")
-            return True
+            # If no face determined to be real, return False
+            logger.warning("No live face detected - possible spoofing attempt")
+            return False
             
         except Exception as e:
             logger.error(f"Error in live detection: {e}")
-            # For debugging, return True to bypass anti-spoofing
-            return True
+            # For security, return False on errors (fail-closed approach)
+            # This prevents authentication when anti-spoofing fails
+            return False
     
     def check_image(self, img_path: str) -> bool:
         """
@@ -104,11 +77,39 @@ class AntiSpoofing:
             True if all faces are real, False if any are fake or none detected
         """
         try:
-            face_objs = DeepFace.extract_faces(img_path=img_path, anti_spoofing=True)
+            # If img_path is a string (file path), read and resize the image
+            if isinstance(img_path, str):
+                # Load the image
+                img = cv2.imread(img_path)
+                if img is not None:
+                    # Resize for better performance
+                    img = resize_for_deepface(img)
+                    # Use the resized image instead of the file path
+                    face_objs = DeepFace.extract_faces(
+                        img_path=img, 
+                        anti_spoofing=True,
+                        detector_backend="opencv"  # Faster for Pi
+                    )
+                else:
+                    # If image couldn't be read, try with original path
+                    face_objs = DeepFace.extract_faces(
+                        img_path=img_path, 
+                        anti_spoofing=True,
+                        detector_backend="opencv"  # Faster for Pi
+                    )
+            else:
+                # If not a string path, use as is
+                face_objs = DeepFace.extract_faces(
+                    img_path=img_path, 
+                    anti_spoofing=True,
+                    detector_backend="opencv"  # Faster for Pi
+                )
+                
             if not face_objs:
                 logger.warning("No faces detected in image during anti-spoofing check")
                 return False
                 
+            # Check if all faces are real using the direct is_real property
             all_real = all(face_obj.get("is_real", False) for face_obj in face_objs)
             if not all_real:
                 logger.warning(f"Fake face detected in image: {img_path}")
@@ -134,20 +135,29 @@ class AntiSpoofing:
             top, right, bottom, left = face_location
             face_img = frame[top:bottom, left:right]
             
-            # DeepFace expects either a file path or a BGR image in numpy array format
-            face_objs = DeepFace.extract_faces(img_path=face_img, 
-                                              anti_spoofing=True,
-                                              enforce_detection=False)
+            # Resize face for better performance - smaller size for face regions
+            resized_face = resize_for_deepface(face_img, width=160, height=160)
+            
+            # Use OpenCV detector for faster processing on Raspberry Pi
+            face_objs = DeepFace.extract_faces(
+                img_path=resized_face, 
+                anti_spoofing=True,
+                enforce_detection=False,
+                detector_backend="opencv"  # Faster for Pi
+            )
             
             if not face_objs:
                 logger.warning("No faces detected in region during anti-spoofing check")
                 return False
-                
-            all_real = all(face_obj.get("is_real", False) for face_obj in face_objs)
-            if not all_real:
-                logger.warning("Fake face detected in frame region")
-                
-            return all_real
+            
+            # Check if the face is real using the 'is_real' property
+            for face_obj in face_objs:
+                if "is_real" in face_obj and face_obj["is_real"]:
+                    return True
+            
+            logger.warning("Fake face detected in frame region")
+            return False
+            
         except Exception as e:
             logger.error(f"Error in anti-spoofing check for face region: {e}")
             return False
@@ -178,13 +188,19 @@ class AntiSpoofing:
             # Only perform detailed anti-spoofing on recognized faces
             if name != "Unknown":
                 try:
-                    # Perform anti-spoofing check
-                    face_objs = DeepFace.extract_faces(img_path=face_img, 
-                                                     anti_spoofing=True,
-                                                     enforce_detection=False)
+                    # Resize face for better performance
+                    resized_face = resize_for_deepface(face_img, width=160, height=160)
                     
-                    # Check if face is real
-                    is_real = all(face_obj.get("is_real", False) for face_obj in face_objs)
+                    # Use OpenCV detector for faster processing on Raspberry Pi
+                    face_objs = DeepFace.extract_faces(
+                        img_path=resized_face, 
+                        anti_spoofing=True,
+                        enforce_detection=False,
+                        detector_backend="opencv"  # Faster for Pi
+                    )
+                    
+                    # Check if the face is real directly with is_real property
+                    is_real = any(face_obj.get("is_real", False) for face_obj in face_objs)
                     
                     if is_real:
                         verified_results.append((bbox, name, confidence))
@@ -193,8 +209,9 @@ class AntiSpoofing:
                         logger.warning(f"Fake face detected for {name}")
                 except Exception as e:
                     logger.error(f"Anti-spoofing check failed: {e}")
-                    # Still include the face but keep original label
-                    verified_results.append((bbox, name, confidence))
+                    # Mark as fake on errors for better security (fail-closed approach)
+                    verified_results.append((bbox, "Fake", confidence))
+                    logger.warning(f"Anti-spoofing error for {name} - marking as fake for security")
             else:
                 # For unknown faces, just pass through
                 verified_results.append((bbox, name, confidence))
@@ -224,10 +241,16 @@ class AntiSpoofing:
                     
                 # Detect and analyze faces with anti-spoofing
                 try:
-                    # Extract faces with anti-spoofing check
-                    face_objs = DeepFace.extract_faces(img_path=frame, 
-                                                      anti_spoofing=True,
-                                                      enforce_detection=False)
+                    # Resize frame for better performance on Raspberry Pi
+                    resized_frame = resize_for_deepface(frame)
+                    
+                    # Use OpenCV detector for faster processing on Raspberry Pi
+                    face_objs = DeepFace.extract_faces(
+                        img_path=resized_frame, 
+                        anti_spoofing=True,
+                        enforce_detection=False,
+                        detector_backend="opencv"  # Faster for Pi
+                    )
                     
                     results = []
                     for face_obj in face_objs:
@@ -240,21 +263,34 @@ class AntiSpoofing:
                         # Convert to top, right, bottom, left format
                         bbox = (y, x + w, y + h, x)
                         
-                        # Check if face is real
+                        # Check if face is real directly from is_real property
                         is_real = face_obj.get("is_real", False)
                         name = "Real" if is_real else "Fake"
                         confidence = 1.0  # Placeholder
                         
                         results.append((bbox, name, confidence))
                     
-                    # Draw results on frame
-                    annotated_frame = draw_recognition_feedback_on_frame(frame, results)
+                    # Add FPS counter for performance monitoring
+                    if results:
+                        annotated_frame = draw_recognition_feedback_on_frame(frame, results)
+                        cv2.putText(annotated_frame, f"Found {len(results)} faces", (10, 30), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    else:
+                        annotated_frame = frame.copy()
+                        cv2.putText(annotated_frame, "No faces detected", (10, 30), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    
                     cv2.imshow("Anti-Spoofing Demo", annotated_frame)
                     
                 except Exception as e:
                     logger.error(f"Error in anti-spoofing demo: {e}")
-                    # Just show the original frame if processing failed
-                    cv2.imshow("Anti-Spoofing Demo", frame)
+                    # Show error on frame for better user feedback
+                    error_frame = frame.copy()
+                    cv2.putText(error_frame, "Anti-spoofing Error!", (20, 50),
+                               cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                    cv2.putText(error_frame, str(e)[:50], (20, 90),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 1)
+                    cv2.imshow("Anti-Spoofing Demo", error_frame)
                 
                 # Check for quit key
                 if cv2.waitKey(1) & 0xFF == ord('q'):

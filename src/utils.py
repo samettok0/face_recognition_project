@@ -258,3 +258,7 @@ def create_flash_effect(frame: np.ndarray, flash_duration: float = 0.1) -> None:
         sleep_time = max(0, frame_end_time - time.time())
         if sleep_time > 0:
             time.sleep(sleep_time)
+
+def resize_for_deepface(frame: np.ndarray, width: int = 320, height: int = 240) -> np.ndarray:
+    """Resize frame to smaller resolution for faster DeepFace processing on Raspberry Pi."""
+    return cv2.resize(frame, (width, height))

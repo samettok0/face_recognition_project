@@ -19,8 +19,8 @@ TEXT_COLOR = "white"
 
 # Camera settings
 DEFAULT_CAMERA_INDEX = 0
-FRAME_WIDTH = 640
-FRAME_HEIGHT = 480
+FRAME_WIDTH = 320  # Lower resolution for better performance on Raspberry Pi
+FRAME_HEIGHT = 240  # Lower resolution for better performance on Raspberry Pi
 
 # Head pose settings
 # Multipliers for sensitivity scaling - higher values = more sensitive
