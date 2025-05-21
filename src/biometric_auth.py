@@ -6,9 +6,16 @@ import queue
 from typing import Optional, Callable, List, Tuple
 from deepface import DeepFace
 
+try:
+    import RPi.GPIO as GPIO
+    GPIO_AVAILABLE = True
+except ImportError:
+    GPIO_AVAILABLE = False
+
 from .camera_handler import CameraHandler
 from .face_recognizer import FaceRecognizer
 from .utils import logger, draw_recognition_feedback_on_frame
+from .config import LOCK_PIN, LOCK_ACTIVE_TIME, USE_HARDWARE_LOCK
 
 class BiometricAuth:
     def __init__(self, recognition_threshold: float = 0.6,
@@ -39,6 +46,50 @@ class BiometricAuth:
         self.processing_queue = queue.Queue(maxsize=1)  # Only process most recent frame
         self.results_queue = queue.Queue()
         self.should_stop = threading.Event()
+        
+        # Hardware lock attributes
+        self.lock_pin = LOCK_PIN
+        self.lock_active_time = LOCK_ACTIVE_TIME
+        
+        # Setup GPIO for lock control if hardware lock is enabled
+        if USE_HARDWARE_LOCK and GPIO_AVAILABLE:
+            self._setup_lock_gpio()
+        
+        # Import db_manager here to avoid circular imports
+        from .db_manager import DatabaseManager
+        self.db_manager = DatabaseManager()
+        
+        # Load authorized users from database
+        self._load_authorized_users_from_db()
+        
+    def _setup_lock_gpio(self):
+        """Set up GPIO for lock control"""
+        if not GPIO_AVAILABLE:
+            logger.warning("GPIO module not available, hardware lock control disabled")
+            return
+            
+        try:
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setup(self.lock_pin, GPIO.OUT)
+            # Ensure lock is inactive at start
+            GPIO.output(self.lock_pin, GPIO.LOW)
+            logger.info(f"GPIO set up for lock control on pin {self.lock_pin}")
+        except Exception as e:
+            logger.error(f"Error setting up GPIO: {e}")
+        
+    def _load_authorized_users_from_db(self):
+        """Load authorized users from database"""
+        if not hasattr(self, 'db_manager') or self.db_manager is None:
+            logger.warning("Database manager not available, can't load authorized users")
+            return
+            
+        try:
+            user_names = self.db_manager.get_authorized_users()
+            for name in user_names:
+                self.authorized_users.add(name)
+            logger.info(f"Loaded {len(user_names)} authorized users from database")
+        except Exception as e:
+            logger.error(f"Error loading authorized users from database: {e}")
         
     def add_authorized_user(self, username: str) -> None:
         """Add a user to the authorized users list"""
@@ -246,6 +297,11 @@ class BiometricAuth:
                     if consecutive_matches[name] >= self.consecutive_matches_required:
                         logger.info(f"Authentication successful: {name}" +
                                    (f" (confidence: {confidence:.2f})" if single_authentication else ""))
+                        
+                        # Log successful authentication to database
+                        if hasattr(self, 'db_manager') and self.db_manager:
+                            self.db_manager.log_authentication(name, "success", confidence)
+                            
                         self.unlock_lock(name)
                         
                         if single_authentication:
@@ -263,6 +319,11 @@ class BiometricAuth:
                 
             if single_authentication:
                 logger.info("Authentication failed: No authorized user recognized")
+                
+                # Log failed authentication attempt to database
+                if hasattr(self, 'db_manager') and self.db_manager:
+                    self.db_manager.log_authentication(None, "failed")
+                    
                 return False, None
             return False, None  # Should not reach here in continuous mode
                 
@@ -296,15 +357,36 @@ class BiometricAuth:
     
     def unlock_lock(self, username: str) -> None:
         """
-        Placeholder method to unlock physical lock
+        Unlock the physical lock for the authenticated user
         
         Args:
             username: Name of the authenticated user
         """
-        # This is a placeholder - not implemented yet
         logger.info(f"UNLOCK REQUEST: Access granted to {username}")
         print(f"🔓 Access granted to {username}")
-        # Future implementation will connect to physical lock mechanism
+        
+        # Activate hardware lock if available
+        if USE_HARDWARE_LOCK and GPIO_AVAILABLE:
+            try:
+                # Activate lock (HIGH signal)
+                GPIO.output(self.lock_pin, GPIO.HIGH)
+                logger.info(f"Lock activated for {username}")
+                
+                # Start a timer to deactivate the lock after the specified time
+                def deactivate_lock():
+                    time.sleep(self.lock_active_time)
+                    GPIO.output(self.lock_pin, GPIO.LOW)
+                    logger.info("Lock deactivated")
+                
+                # Run the timer in a separate thread
+                lock_timer = threading.Thread(target=deactivate_lock)
+                lock_timer.daemon = True
+                lock_timer.start()
+                
+            except Exception as e:
+                logger.error(f"Error activating lock: {e}")
+        else:
+            logger.info("Hardware lock control not available or disabled")
     
     def run_continuous_monitoring(self, 
                                 on_success: Optional[Callable[[str], None]] = None):

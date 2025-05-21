@@ -4,6 +4,7 @@ from pathlib import Path
 TRAINING_DIR = Path("data/training")
 OUTPUT_DIR = Path("output")
 ENCODINGS_FILE = OUTPUT_DIR / "encodings.pkl"
+DB_PATH = OUTPUT_DIR / "face_recognition.db"
 
 # Create required directories
 TRAINING_DIR.mkdir(parents=True, exist_ok=True)
@@ -43,6 +44,17 @@ CENTERING_TOLERANCE = 0.1
 STABILIZATION_TIME = 1.5  # Time in seconds for pose to be considered stable
 COUNTDOWN_TIME = 3  # Countdown time in seconds before capturing
 BURST_DELAY = 0.5  # Delay between burst captures in seconds
+
+# API settings
+API_PORT = 5000
+API_HOST = "0.0.0.0"  # Listen on all interfaces
+JWT_SECRET_KEY = "your-secret-key-change-in-production"  # IMPORTANT: Change in production!
+JWT_TOKEN_EXPIRY = 24 * 60 * 60  # 24 hours in seconds
+
+# Hardware settings
+USE_HARDWARE_LOCK = True  # Set to False to disable hardware lock control
+LOCK_PIN = 18  # GPIO pin for controlling solenoid lock
+LOCK_ACTIVE_TIME = 5  # Time to keep lock active in seconds
 
 # Logging settings
 LOG_FILE = "face_recognition.log"

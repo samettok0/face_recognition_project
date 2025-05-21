@@ -5,9 +5,13 @@ from pathlib import Path
 from typing import Dict, List, Union, Any, Tuple, Optional
 import face_recognition
 import logging
+import numpy as np
+import os
+from datetime import datetime
 
 from .config import TRAINING_DIR, ENCODINGS_FILE, HOG_MODEL
 from .utils import logger
+from .camera_handler import CameraHandler
 
 class FaceEncoder:
     def __init__(self, model: str = HOG_MODEL, encodings_path: Path = ENCODINGS_FILE):
@@ -20,184 +24,247 @@ class FaceEncoder:
         """
         self.model = model
         self.encodings_path = encodings_path
+        self.db_manager = None
         
-    def encode_known_faces(self) -> None:
-        """
-        Creates a database of known faces from training images.
-        """
-        logger.info("Starting face encoding process")
-        names = []
-        encodings = []
-        
-        # Count total files for progress tracking
-        total_files = sum(1 for _ in TRAINING_DIR.glob("*/*"))
-        processed = 0
-        
-        for filepath in TRAINING_DIR.glob("*/*"):
-            if not filepath.is_file():
-                continue
-                
-            # Extract name from parent directory
-            name = filepath.parent.name
-            logger.info(f"Processing image: {filepath.name} for person: {name}")
-            
-            try:
-                # Load the image
-                image = face_recognition.load_image_file(filepath)
-
-                # Detect faces and create their encodings
-                face_locations = face_recognition.face_locations(image, model=self.model)
-                face_encodings = face_recognition.face_encodings(image, face_locations)
-
-                # Save each detected face encoding
-                for encoding in face_encodings:
-                    names.append(name)
-                    encodings.append(encoding)
-                
-                processed += 1
-                if processed % 10 == 0:
-                    logger.info(f"Processed {processed}/{total_files} images")
-                    
-            except Exception as e:
-                logger.error(f"Error processing {filepath}: {e}")
-        
-        # Save the database of face encodings
-        self._save_encodings(names, encodings)
-        logger.info(f"Face encoding complete. Encoded {len(encodings)} faces for {len(set(names))} individuals.")
-        
-    def _save_encodings(self, names: List[str], encodings: List[Any]) -> None:
-        """
-        Save face encodings to file
-        
-        Args:
-            names: List of person names corresponding to encodings
-            encodings: List of face encodings
-        """
-        name_encodings = {"names": names, "encodings": encodings}
-        with self.encodings_path.open(mode="wb") as f:
-            pickle.dump(name_encodings, f)
-        logger.info(f"Saved encodings to {self.encodings_path}")
+        # Import here to avoid circular imports
+        from .db_manager import DatabaseManager
+        self.db_manager = DatabaseManager()
         
     def load_encodings(self) -> Dict[str, Union[List[str], List[Any]]]:
         """
-        Load face encodings from file
+        Load face encodings from database
         
         Returns:
-            Dictionary with 'names' and 'encodings' keys
+            Dictionary with face encodings and corresponding names
         """
-        if not self.encodings_path.exists():
-            logger.error(f"Encodings file not found: {self.encodings_path}")
-            return {"names": [], "encodings": []}
-            
         try:
-            with self.encodings_path.open(mode="rb") as f:
-                return pickle.load(f)
+            # Try to load from database
+            if self.db_manager:
+                return self.db_manager.get_face_encodings()
+                
+            # Fallback to loading from pkl file
+            if self.encodings_path.exists():
+                with open(self.encodings_path, "rb") as f:
+                    return pickle.load(f)
+            else:
+                logger.warning(f"Encodings file {self.encodings_path} not found")
+                return {"names": [], "encodings": []}
         except Exception as e:
             logger.error(f"Error loading encodings: {e}")
             return {"names": [], "encodings": []}
-            
-    def add_face(self, image_path: str, name: str) -> bool:
+    
+    def _encode_face(self, image_path: Path) -> Optional[np.ndarray]:
         """
-        Add a new face to the training data and update encodings
+        Create a face encoding for a single image
         
         Args:
-            image_path: Path to the image containing the face
-            name: Name of the person
+            image_path: Path to the image file
             
         Returns:
-            True if successful, False otherwise
+            Face encoding vector or None if no face detected
         """
+        # Load image
         try:
-            # Use the directory created in config.py
-            person_dir = TRAINING_DIR / name
-            
-            # Get the next available filename
-            existing_files = list(person_dir.glob("*.jpg"))
-            new_filename = f"{len(existing_files) + 1}.jpg"
-            new_file_path = person_dir / new_filename
-            
-            # Copy the image file
-            import shutil
-            shutil.copy(image_path, new_file_path)
-            
-            logger.info(f"Added new face for {name}: {new_file_path}")
-            
-            # Re-encode all faces to update the database
-            self.encode_known_faces()
-            
-            return True
+            image = face_recognition.load_image_file(image_path)
         except Exception as e:
-            logger.error(f"Error adding face: {e}")
-            return False
+            logger.error(f"Error loading image {image_path}: {e}")
+            return None
+        
+        # Find face locations
+        face_locations = face_recognition.face_locations(
+            image, model=self.model
+        )
+        
+        # No faces found
+        if not face_locations:
+            logger.warning(f"No face found in {image_path}")
+            return None
             
-    def register_person_from_camera(self, camera, name: str, num_images: int = 10) -> bool:
+        # If multiple faces found, use the largest one
+        if len(face_locations) > 1:
+            logger.warning(f"Multiple faces found in {image_path}, using largest")
+            # Calculate face area for each detection
+            areas = [(r - t) * (r - l) for t, r, b, l in face_locations]
+            # Get index of largest face
+            largest_idx = areas.index(max(areas))
+            face_locations = [face_locations[largest_idx]]
+            
+        # Create face encoding
+        face_encoding = face_recognition.face_encodings(image, face_locations)[0]
+        return face_encoding
+    
+    def encode_known_faces(self, force_rebuild: bool = False) -> bool:
         """
-        Register a new person by capturing their face from camera
+        Process the training directory and build face encodings database
         
         Args:
-            camera: Camera handler instance
-            name: Name of the person
-            num_images: Number of images to capture
+            force_rebuild: If True, rebuild encodings even if file exists
             
         Returns:
             True if successful, False otherwise
         """
-        # Normalize the name (lowercase, replace spaces with underscores)
-        normalized_name = name.lower().replace(" ", "_")
+        training_dir = TRAINING_DIR
         
-        logger.info(f"Starting registration for {normalized_name}")
+        # Check if encodings already exist and force_rebuild is False
+        if not force_rebuild and self.encodings_path.exists():
+            logger.info(f"Using existing encodings file: {self.encodings_path}")
+            
+            # Migrate to database if needed
+            if self.db_manager:
+                migrations = self.db_manager.migrate_from_pkl(self.encodings_path)
+                if migrations > 0:
+                    logger.info(f"Migrated {migrations} face encodings to database")
+                    
+            return True
+            
+        logger.info("Building face encodings database...")
         
-        if not camera.start():
-            logger.error("Failed to start camera for registration")
-            return False
+        # Dictionary to store the results
+        data = {
+            "names": [],
+            "encodings": []
+        }
+        
+        # Loop through each person's directory
+        for person_dir in training_dir.iterdir():
+            if not person_dir.is_dir():
+                continue
+                
+            person_name = person_dir.name
+            logger.info(f"Processing {person_name}'s images...")
+            
+            # Add user to database
+            user_id = None
+            if self.db_manager:
+                user_id = self.db_manager.add_user(person_name)
+            
+            # Process each image for this person
+            images_processed = 0
+            for image_path in person_dir.glob("*.png"):
+                # Encode face
+                face_encoding = self._encode_face(image_path)
+                if face_encoding is None:
+                    continue
+                    
+                # Add encoding to database
+                if self.db_manager and user_id is not None:
+                    self.db_manager.add_face_encoding(user_id, face_encoding)
+                    
+                # Add to data dictionary
+                data["names"].append(person_name)
+                data["encodings"].append(face_encoding)
+                
+                images_processed += 1
+                
+            logger.info(f"Processed {images_processed} images for {person_name}")
+            
+        # If still using pkl files, save them
+        if not self.db_manager:
+            # Save the database of face encodings
+            self.encodings_path.parent.mkdir(exist_ok=True)
+            with open(self.encodings_path, "wb") as f:
+                pickle.dump(data, f)
+                
+            logger.info(f"Saved {len(data['names'])} face encodings to {self.encodings_path}")
+        else:
+            logger.info(f"Added {len(data['names'])} face encodings to database")
+            
+        return len(data["names"]) > 0
+    
+    def register_person_from_camera(self, camera_handler: CameraHandler, name: str, 
+                                   num_images: int = 5) -> bool:
+        """
+        Register a new person by taking photos from camera
+        
+        Args:
+            camera_handler: Initialized camera handler
+            name: Person's name
+            num_images: Number of photos to take
+            
+        Returns:
+            True if successful, False if failed or cancelled
+        """
+        # Create directory for training images
+        person_dir = TRAINING_DIR / name
+        person_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Get timestamp for image names
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Add user to database
+        user_id = None
+        if self.db_manager:
+            user_id = self.db_manager.add_user(name)
+        
+        # Start camera if not already running
+        camera_was_running = camera_handler.is_running
+        if not camera_was_running:
+            if not camera_handler.start():
+                logger.error("Failed to start camera for registration")
+                return False
         
         try:
-            saved_paths = []
-            count = 0
-            
+            images_captured = 0
             print(f"Capturing {num_images} photos for {name}...")
-            print("Position your face in the camera and press SPACE to capture each photo.")
-            print("Press ESC to cancel.")
+            print("Press 'c' to capture, 'q' to cancel")
             
-            while count < num_images:
-                # Get frame
-                frame = camera.get_frame()
+            last_capture_time = 0
+            min_capture_interval = 1.0  # Minimum 1 second between captures
+            
+            while images_captured < num_images:
+                frame = camera_handler.get_frame()
                 if frame is None:
                     time.sleep(0.1)
                     continue
                 
-                # Display with instruction
-                cv2.putText(frame, f"Press SPACE to capture ({count+1}/{num_images})", 
-                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                cv2.imshow("Register New Face", frame)
+                # Show instructions on frame
+                progress = f"Progress: {images_captured}/{num_images} photos"
+                cv2.putText(frame, progress, (10, 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                cv2.putText(frame, "Press 'c' to capture, 'q' to cancel", (10, 60),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 
-                # Wait for key press
+                cv2.imshow("Registration", frame)
+                
                 key = cv2.waitKey(1) & 0xFF
-                if key == 27:  # ESC key
-                    logger.info("Registration cancelled by user")
+                
+                # Cancel registration
+                if key == ord('q'):
+                    print("Registration cancelled.")
                     return False
-                elif key == 32:  # SPACE key
-                    # Use the directory created in config.py
-                    person_dir = TRAINING_DIR / normalized_name
-                    
-                    # Generate filename
-                    image_path = str(person_dir / f"{count+1}.jpg")
-                    
+                
+                # Capture image
+                current_time = time.time()
+                if key == ord('c') and current_time - last_capture_time >= min_capture_interval:
                     # Save image
-                    cv2.imwrite(image_path, frame)
-                    saved_paths.append(image_path)
-                    logger.info(f"Captured image {count+1}/{num_images} for {normalized_name}")
-                    print(f"Captured image {count+1}/{num_images}")
-                    count += 1
-        
-        finally:
-            camera.stop()
-            cv2.destroyAllWindows()
-        
-        if saved_paths:
-            logger.info(f"Successfully captured {len(saved_paths)} images for {normalized_name}")
+                    image_path = person_dir / f"{name}_{timestamp}_{images_captured+1}.png"
+                    cv2.imwrite(str(image_path), frame)
+                    
+                    # Encode face
+                    face_encoding = self._encode_face(image_path)
+                    
+                    if face_encoding is None:
+                        print(f"No face detected in captured image. Please try again.")
+                        # Delete the image
+                        os.remove(image_path)
+                    else:
+                        # Add encoding to database
+                        if self.db_manager and user_id is not None:
+                            self.db_manager.add_face_encoding(user_id, face_encoding)
+                            
+                        images_captured += 1
+                        print(f"Captured photo {images_captured}/{num_images}")
+                        last_capture_time = current_time
+            
             # Re-encode all faces to update the database
-            self.encode_known_faces()
+            logger.info(f"Registration complete. Re-encoding faces...")
+            self.encode_known_faces(force_rebuild=True)
+            
             return True
-        
-        return False 
+            
+        finally:
+            # Stop camera if it wasn't running before
+            if not camera_was_running:
+                camera_handler.stop()
+            
+            cv2.destroyAllWindows() 
