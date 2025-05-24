@@ -98,103 +98,157 @@ def draw_recognition_feedback_on_frame(frame: np.ndarray,
     Returns:
         Frame with annotations
     """
-    # Create a copy to avoid modifying the original
-    annotated_frame = frame.copy()
-    
-    for result in results:
-        # Extract data based on result format
-        if len(result) == 2:  # (bounding_box, name) format
-            (top, right, bottom, left), name = result
-            confidence = None
-        else:  # (bounding_box, name, confidence) format 
-            (top, right, bottom, left), name, confidence = result
+    try:
+        # Ensure frame is valid
+        if frame is None or frame.size == 0:
+            logger.error("Cannot draw on empty frame")
+            return np.zeros((100, 100, 3), dtype=np.uint8)  # Return a blank frame
+        
+        # Create a copy to avoid modifying the original
+        try:
+            annotated_frame = frame.copy()
+        except Exception as e:
+            logger.error(f"Could not copy frame: {e}")
+            # Try to create a compatible copy
+            if len(frame.shape) == 2:  # Grayscale
+                annotated_frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+            else:
+                # Last resort, create a new array with same dimensions
+                annotated_frame = np.zeros_like(frame)
+                if len(frame.shape) == 3 and frame.shape[2] == 3:
+                    # Try to copy content
+                    np.copyto(annotated_frame, frame, casting='unsafe')
+                else:
+                    logger.error(f"Incompatible frame format: {frame.shape}")
+                    return frame  # Return original as fallback
+        
+        # If we have no results, return early
+        if not results:
+            # Add text showing no faces detected
+            cv2.putText(annotated_frame, "No faces detected", (10, 30),
+                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            return annotated_frame
+        
+        for result in results:
+            # Extract data based on result format
+            if len(result) == 2:  # (bounding_box, name) format
+                (top, right, bottom, left), name = result
+                confidence = None
+            else:  # (bounding_box, name, confidence) format 
+                (top, right, bottom, left), name, confidence = result
+                
+            # Ensure coordinates are valid integers
+            try:
+                top = max(0, int(top))
+                right = max(0, int(right))
+                bottom = max(0, int(bottom))
+                left = max(0, int(left))
+                
+                # Ensure coordinates are within image bounds
+                height, width = annotated_frame.shape[:2]
+                right = min(right, width-1)
+                bottom = min(bottom, height-1)
+                
+                # Skip if invalid box dimensions
+                if right <= left or bottom <= top:
+                    continue
+            except Exception as e:
+                logger.error(f"Invalid bounding box coordinates: {e}")
+                continue
+                
+            # Choose color based on recognition status
+            if name == "Unknown":
+                # Red color for unknown faces (BGR format)
+                main_color = (50, 50, 220)  # Darker red
+                text_bg_color = (80, 80, 255)  # Brighter red
+            elif name == "Fake":
+                # Purple color for fake/spoofed faces (BGR format)
+                main_color = (220, 50, 220)  # Darker purple
+                text_bg_color = (255, 80, 255)  # Brighter purple
+            else:
+                # Green color for known faces
+                main_color = (50, 180, 50)  # Darker green
+                text_bg_color = (20, 220, 20)  # Brighter green
+                
+            # Calculate box dimensions
+            box_width = right - left
+            box_height = bottom - top
             
-        # Choose color based on recognition status
-        if name == "Unknown":
-            # Red color for unknown faces (BGR format)
-            main_color = (50, 50, 220)  # Darker red
-            text_bg_color = (80, 80, 255)  # Brighter red
-        elif name == "Fake":
-            # Purple color for fake/spoofed faces (BGR format)
-            main_color = (220, 50, 220)  # Darker purple
-            text_bg_color = (255, 80, 255)  # Brighter purple
-        else:
-            # Green color for known faces
-            main_color = (50, 180, 50)  # Darker green
-            text_bg_color = (20, 220, 20)  # Brighter green
+            # Draw rectangle with thickness based on face size (more proportional)
+            thickness = max(1, min(3, int(box_width / 100)))
             
-        # Calculate box dimensions
-        box_width = right - left
-        box_height = bottom - top
-        
-        # Draw rectangle with thickness based on face size (more proportional)
-        thickness = max(1, min(3, int(box_width / 100)))
-        
-        # Draw main rectangle (slightly rounded corners using multiple rectangles)
-        cv2.rectangle(annotated_frame, (left, top), (right, bottom), main_color, thickness)
-        
-        # Add corner accents (small perpendicular lines at corners)
-        corner_length = max(10, min(20, int(box_width / 15)))
-        
-        # Top left corner
-        cv2.line(annotated_frame, (left, top), (left + corner_length, top), main_color, thickness + 1)
-        cv2.line(annotated_frame, (left, top), (left, top + corner_length), main_color, thickness + 1)
-        
-        # Top right corner
-        cv2.line(annotated_frame, (right, top), (right - corner_length, top), main_color, thickness + 1)
-        cv2.line(annotated_frame, (right, top), (right, top + corner_length), main_color, thickness + 1)
-        
-        # Bottom left corner
-        cv2.line(annotated_frame, (left, bottom), (left + corner_length, bottom), main_color, thickness + 1)
-        cv2.line(annotated_frame, (left, bottom), (left, bottom - corner_length), main_color, thickness + 1)
-        
-        # Bottom right corner
-        cv2.line(annotated_frame, (right, bottom), (right - corner_length, bottom), main_color, thickness + 1)
-        cv2.line(annotated_frame, (right, bottom), (right, bottom - corner_length), main_color, thickness + 1)
-        
-        # Prepare label
-        if include_confidence and confidence is not None:
-            label = f"{name} ({confidence:.2f})"
-        else:
-            label = name
+            # Draw main rectangle (slightly rounded corners using multiple rectangles)
+            cv2.rectangle(annotated_frame, (left, top), (right, bottom), main_color, thickness)
             
-        # Calculate text size for better positioning
-        (text_width, text_height), baseline = cv2.getTextSize(
-            label, cv2.FONT_HERSHEY_DUPLEX, 0.6, 1
-        )
-        
-        # Draw background for text - bottom aligned, slightly bigger than text
-        text_bg_padding = 5
-        text_left = left
-        text_bottom = bottom + text_height + 2 * text_bg_padding  # Position below face
+            # Add corner accents (small perpendicular lines at corners)
+            corner_length = max(10, min(20, int(box_width / 15)))
+            
+            # Top left corner
+            cv2.line(annotated_frame, (left, top), (left + corner_length, top), main_color, thickness + 1)
+            cv2.line(annotated_frame, (left, top), (left, top + corner_length), main_color, thickness + 1)
+            
+            # Top right corner
+            cv2.line(annotated_frame, (right, top), (right - corner_length, top), main_color, thickness + 1)
+            cv2.line(annotated_frame, (right, top), (right, top + corner_length), main_color, thickness + 1)
+            
+            # Bottom left corner
+            cv2.line(annotated_frame, (left, bottom), (left + corner_length, bottom), main_color, thickness + 1)
+            cv2.line(annotated_frame, (left, bottom), (left, bottom - corner_length), main_color, thickness + 1)
+            
+            # Bottom right corner
+            cv2.line(annotated_frame, (right, bottom), (right - corner_length, bottom), main_color, thickness + 1)
+            cv2.line(annotated_frame, (right, bottom), (right, bottom - corner_length), main_color, thickness + 1)
+            
+            # Prepare label
+            if include_confidence and confidence is not None:
+                label = f"{name} ({confidence:.2f})"
+            else:
+                label = name
+                
+            # Calculate text size for better positioning
+            (text_width, text_height), baseline = cv2.getTextSize(
+                label, cv2.FONT_HERSHEY_DUPLEX, 0.6, 1
+            )
+            
+            # Draw background for text - bottom aligned, slightly bigger than text
+            text_bg_padding = 5
+            text_left = left
+            text_bottom = bottom + text_height + 2 * text_bg_padding  # Position below face
 
-        # Semi-transparent background for text (helps with readability)
-        overlay = annotated_frame.copy()
-        cv2.rectangle(
-            overlay, 
-            (text_left, bottom), 
-            (text_left + text_width + 2 * text_bg_padding, text_bottom), 
-            text_bg_color, 
-            -1  # Filled rectangle
-        )
+            # Make sure text stays within image bounds
+            text_bottom = min(text_bottom, annotated_frame.shape[0] - 1)
+
+            # Semi-transparent background for text (helps with readability)
+            overlay = annotated_frame.copy()
+            cv2.rectangle(
+                overlay, 
+                (text_left, bottom), 
+                (min(text_left + text_width + 2 * text_bg_padding, annotated_frame.shape[1] - 1), text_bottom), 
+                text_bg_color, 
+                -1  # Filled rectangle
+            )
+            
+            # Apply the overlay with transparency
+            alpha = 0.7  # Transparency factor
+            cv2.addWeighted(overlay, alpha, annotated_frame, 1 - alpha, 0, annotated_frame)
+            
+            # Show name with a nicer font
+            cv2.putText(
+                annotated_frame, 
+                label, 
+                (text_left + text_bg_padding, text_bottom - text_bg_padding), 
+                cv2.FONT_HERSHEY_DUPLEX, 
+                0.6, 
+                (255, 255, 255), 
+                1, 
+                cv2.LINE_AA  # Anti-aliased text for smoother appearance
+            )
         
-        # Apply the overlay with transparency
-        alpha = 0.7  # Transparency factor
-        cv2.addWeighted(overlay, alpha, annotated_frame, 1 - alpha, 0, annotated_frame)
-        
-        # Show name with a nicer font
-        cv2.putText(
-            annotated_frame, 
-            label, 
-            (text_left + text_bg_padding, text_bottom - text_bg_padding), 
-            cv2.FONT_HERSHEY_DUPLEX, 
-            0.6, 
-            (255, 255, 255), 
-            1, 
-            cv2.LINE_AA  # Anti-aliased text for smoother appearance
-        )
-    
-    return annotated_frame
+        return annotated_frame
+    except Exception as e:
+        logger.error(f"Error drawing recognition feedback: {e}")
+        # Return original frame if there was an error
+        return frame
 
 def ensure_dir_exists(directory: str) -> None:
     """

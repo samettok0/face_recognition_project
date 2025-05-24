@@ -167,7 +167,37 @@ class CameraHandler:
             
         # Reset failure counter on successful frame read
         self._consecutive_failures = 0
-        return frame
+        
+        # Ensure frame is in a format that works with face_recognition
+        try:
+            # Check frame format
+            if frame is None or frame.size == 0:
+                logger.error("Empty frame received from camera")
+                return None
+                
+            # Check if frame is grayscale and convert to BGR if needed
+            if len(frame.shape) == 2:
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                
+            # Make sure the image is 8-bit for face_recognition
+            if frame.dtype != np.uint8:
+                frame = (frame * 255).astype(np.uint8)
+                
+            # Some Raspberry Pi cameras might give weird formats
+            # Ensure we have 3 channels (BGR)
+            if len(frame.shape) == 3:
+                if frame.shape[2] == 1:  # Single channel
+                    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                elif frame.shape[2] == 4:  # RGBA
+                    frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
+                # else it's already BGR with 3 channels
+            
+            return frame
+            
+        except Exception as e:
+            logger.error(f"Error processing camera frame: {e}")
+            # Return original frame as fallback
+            return frame
     
     def set_exposure(self, value: int) -> bool:
         """

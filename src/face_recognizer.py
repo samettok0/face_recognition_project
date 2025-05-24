@@ -40,22 +40,63 @@ class FaceRecognizer:
             Tuple of (face_locations, face_encodings)
         """
         # Ensure image is in RGB format - convert if necessary
-        if image.shape[2] == 4:  # RGBA format
-            image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
-        elif image.shape[2] == 3:  # Could be BGR from OpenCV
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        
-        # Detect faces
-        face_locations = face_recognition.face_locations(
-            image, model=self.model
-        )
-        
-        # Create encodings for detected faces
-        face_encodings = face_recognition.face_encodings(
-            image, face_locations
-        )
-        
-        return face_locations, face_encodings
+        try:
+            # First check if image is valid
+            if image is None or image.size == 0:
+                logger.error("Empty or invalid image received")
+                return [], []
+            
+            # Check if grayscale (2D array)
+            if len(image.shape) == 2:
+                # Convert grayscale to RGB
+                image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+            # Handle color images (3D array)
+            elif len(image.shape) == 3:
+                if image.shape[2] == 4:  # RGBA format
+                    image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+                elif image.shape[2] == 3:  # Could be BGR from OpenCV
+                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                elif image.shape[2] == 1:  # Single channel color format
+                    image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+            else:
+                # Unknown format - try to normalize
+                logger.warning(f"Unusual image format with shape: {image.shape}")
+                # Convert to 8-bit if needed
+                if image.dtype != np.uint8:
+                    image = (image * 255).astype(np.uint8)
+                
+                # Force conversion to RGB as a last resort
+                if len(image.shape) == 3 and image.shape[2] >= 3:
+                    image = image[:, :, :3]  # Take first 3 channels
+                else:
+                    # Create a 3-channel image
+                    h, w = image.shape[:2]
+                    rgb_image = np.zeros((h, w, 3), dtype=np.uint8)
+                    # Copy the first channel to all RGB channels
+                    rgb_image[:, :, 0] = image[:, :, 0] if len(image.shape) == 3 else image
+                    rgb_image[:, :, 1] = image[:, :, 0] if len(image.shape) == 3 else image
+                    rgb_image[:, :, 2] = image[:, :, 0] if len(image.shape) == 3 else image
+                    image = rgb_image
+            
+            # Make sure we have 8-bit per channel
+            if image.dtype != np.uint8:
+                image = image.astype(np.uint8)
+            
+            # Detect faces
+            face_locations = face_recognition.face_locations(
+                image, model=self.model
+            )
+            
+            # Create encodings for detected faces
+            face_encodings = face_recognition.face_encodings(
+                image, face_locations
+            )
+            
+            return face_locations, face_encodings
+            
+        except Exception as e:
+            logger.error(f"Error processing image for face detection: {e}")
+            return [], []
         
     def recognize_faces(self, image_location: str, display_result: bool = True) -> List[Tuple[Tuple[int, int, int, int], str]]:
         """

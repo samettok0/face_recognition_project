@@ -57,6 +57,7 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
         for person_dir in training_dir.iterdir():
             if person_dir.is_dir():
                 auth.add_authorized_user(person_dir.name)
+                print(f"Authorized user: {person_dir.name}")
     
     # Initialize spoof detector and decision gate
     spoof_detector = AntiSpoofing()
@@ -82,16 +83,32 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
         max_frames = 120  # Maximum frames to process (about 4 seconds with default timing)
         frame_count = 0
         
+        # Get initial camera frame to check format
+        initial_frame = camera.get_frame()
+        if initial_frame is not None:
+            print(f"Camera frame info - Shape: {initial_frame.shape}, Type: {initial_frame.dtype}")
+        else:
+            print("WARNING: Could not get initial frame from camera")
+        
         while time.time() - start_time < 60 and frame_count < max_frames:  # 1 minute timeout or max frames
             frame = camera.get_frame()
             if frame is None:
+                print("Warning: Camera returned None frame, retrying...")
                 time.sleep(0.1)
                 continue
             
             frame_count += 1
             
             # Process frame for facial recognition
-            results = auth.recognizer.recognize_face_in_frame(frame)
+            try:
+                results = auth.recognizer.recognize_face_in_frame(frame)
+                
+                # If we have no results but no error was thrown, debug the image
+                if not results and frame_count % 30 == 0:  # Debug every 30 frames
+                    print(f"No faces detected in frame {frame_count}. Frame shape: {frame.shape}, dtype: {frame.dtype}")
+            except Exception as e:
+                print(f"Error during face recognition: {e}")
+                results = []
             
             # Check if any recognized face belongs to authorized user
             is_match = False
@@ -99,7 +116,10 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
                 if name != "Unknown" and name in auth.authorized_users:
                     is_match = True
                     matched_name = name  # Fix: Save matched name
+                    print(f"MATCH! Recognized {name} with confidence {confidence:.2f}")
                     break
+                else:
+                    print(f"Found face: {name} with confidence {confidence:.2f}")
             
             # Check for liveness if anti-spoofing is enabled
             is_live = True  # Default to True if anti-spoofing not enabled
@@ -126,17 +146,25 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
                 sys.exit(0)
             
             # Show feedback on frame
-            annotated_frame = draw_recognition_feedback_on_frame(frame, results)
-            # Use actual values not symbols for clarity
-            status_text = f"Match: {is_match}, Live: {is_live}"
-            cv2.putText(annotated_frame, status_text, (10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0) if is_live and is_match else (0, 0, 255), 2)
-            
-            # Add frame counter
-            cv2.putText(annotated_frame, f"Frame: {frame_count}/{max_frames}", (10, 60),
-                      cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-            
-            cv2.imshow("Authentication", annotated_frame)
+            try:
+                annotated_frame = draw_recognition_feedback_on_frame(frame, results)
+                # Use actual values not symbols for clarity
+                status_text = f"Match: {is_match}, Live: {is_live}"
+                cv2.putText(annotated_frame, status_text, (10, 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0) if is_live and is_match else (0, 0, 255), 2)
+                
+                # Add frame counter
+                cv2.putText(annotated_frame, f"Frame: {frame_count}/{max_frames}", (10, 60),
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                
+                cv2.imshow("Authentication", annotated_frame)
+            except Exception as e:
+                print(f"Error displaying frame: {e}")
+                # Still show original frame as fallback
+                try:
+                    cv2.imshow("Authentication", frame)
+                except:
+                    pass
             
             # Check for 'q' key to quit
             if cv2.waitKey(1) & 0xFF == ord('q'):
