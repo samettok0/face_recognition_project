@@ -5,10 +5,26 @@ import threading
 import queue
 from typing import Optional, Callable, List, Tuple
 from deepface import DeepFace
+import platform
+import sys
 
 from .camera_handler import CameraHandler
 from .face_recognizer import FaceRecognizer
 from .utils import logger, draw_recognition_feedback_on_frame
+from .config import LOCK_GPIO_PIN, LOCK_OPEN_DURATION, LOCK_ACTIVE_HIGH
+
+# Check if we're running on a Raspberry Pi and import GPIO if available
+is_raspberry_pi = platform.machine().startswith('arm')
+if is_raspberry_pi:
+    try:
+        import RPi.GPIO as GPIO
+        GPIO_AVAILABLE = True
+    except ImportError:
+        GPIO_AVAILABLE = False
+        logger.warning("RPi.GPIO module not available. Lock control will be simulated.")
+else:
+    GPIO_AVAILABLE = False
+    logger.info("Not running on Raspberry Pi. Lock control will be simulated.")
 
 class BiometricAuth:
     def __init__(self, recognition_threshold: float = 0.6,
@@ -296,15 +312,47 @@ class BiometricAuth:
     
     def unlock_lock(self, username: str) -> None:
         """
-        Placeholder method to unlock physical lock
+        Control the physical lock connected to GPIO pin
         
         Args:
             username: Name of the authenticated user
         """
-        # This is a placeholder - not implemented yet
         logger.info(f"UNLOCK REQUEST: Access granted to {username}")
         print(f"🔓 Access granted to {username}")
-        # Future implementation will connect to physical lock mechanism
+        
+        if GPIO_AVAILABLE:
+            try:
+                # Setup GPIO
+                GPIO.setmode(GPIO.BCM)
+                GPIO.setup(LOCK_GPIO_PIN, GPIO.OUT)
+                
+                # Set the pin to active state based on configuration
+                active_state = GPIO.HIGH if LOCK_ACTIVE_HIGH else GPIO.LOW
+                inactive_state = GPIO.LOW if LOCK_ACTIVE_HIGH else GPIO.HIGH
+                
+                # Activate the lock
+                GPIO.output(LOCK_GPIO_PIN, active_state)
+                logger.info(f"Lock activated via GPIO {LOCK_GPIO_PIN}")
+                
+                # Keep the lock open for the specified duration
+                time.sleep(LOCK_OPEN_DURATION)
+                
+                # Deactivate the lock
+                GPIO.output(LOCK_GPIO_PIN, inactive_state)
+                logger.info(f"Lock deactivated after {LOCK_OPEN_DURATION} seconds")
+                
+                # Cleanup GPIO
+                GPIO.cleanup(LOCK_GPIO_PIN)
+                
+            except Exception as e:
+                logger.error(f"Error controlling lock via GPIO: {e}")
+                print(f"⚠️ Error controlling lock: {e}")
+        else:
+            # Simulate the lock behavior when GPIO is not available
+            print(f"🔓 Simulating lock open for {LOCK_OPEN_DURATION} seconds")
+            time.sleep(LOCK_OPEN_DURATION)
+            print(f"🔒 Simulating lock close")
+            logger.info(f"Simulated lock control (GPIO not available)")
     
     def run_continuous_monitoring(self, 
                                 on_success: Optional[Callable[[str], None]] = None):
