@@ -39,6 +39,12 @@ class FaceRecognizer:
         Returns:
             Tuple of (face_locations, face_encodings)
         """
+        # Ensure image is in RGB format - convert if necessary
+        if image.shape[2] == 4:  # RGBA format
+            image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+        elif image.shape[2] == 3:  # Could be BGR from OpenCV
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
         # Detect faces
         face_locations = face_recognition.face_locations(
             image, model=self.model
@@ -94,16 +100,25 @@ class FaceRecognizer:
         Returns:
             List of tuples containing face locations, names, and confidence scores
         """
-        # Detect faces and create their encodings
-        face_locations, face_encodings = self._detect_and_encode_faces(frame)
-        
-        # Process each detected face
-        results = []
-        for bounding_box, unknown_encoding in zip(face_locations, face_encodings):
-            name, confidence = self._recognize_face_with_confidence(unknown_encoding)
-            results.append((bounding_box, name, confidence))
+        try:
+            # Check if frame is valid
+            if frame is None or frame.size == 0:
+                logger.warning("Invalid frame received in recognize_face_in_frame")
+                return []
+                
+            # Detect faces and create their encodings
+            face_locations, face_encodings = self._detect_and_encode_faces(frame)
             
-        return results
+            # Process each detected face
+            results = []
+            for bounding_box, unknown_encoding in zip(face_locations, face_encodings):
+                name, confidence = self._recognize_face_with_confidence(unknown_encoding)
+                results.append((bounding_box, name, confidence))
+                
+            return results
+        except Exception as e:
+            logger.error(f"Error in face recognition: {e}")
+            return []
     
     def _recognize_face(self, unknown_encoding: np.ndarray, 
                         loaded_encodings: Dict[str, Union[List[str], List[Any]]]) -> Optional[str]:
