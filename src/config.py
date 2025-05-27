@@ -47,8 +47,3 @@ BURST_DELAY = 0.5  # Delay between burst captures in seconds
 # Logging settings
 LOG_FILE = "face_recognition.log"
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s" 
-
-# GPIO Settings for Raspberry Pi
-LOCK_GPIO_PIN = 27  # GPIO pin connected to the lock
-LOCK_OPEN_DURATION = 5  # Duration in seconds to keep the lock open
-LOCK_ACTIVE_HIGH = False  # Set to True if lock opens on HIGH signal, False if it opens on LOW 
