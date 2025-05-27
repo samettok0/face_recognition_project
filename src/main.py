@@ -5,6 +5,7 @@ import numpy as np
 import sys
 import os
 import time
+import signal
 from pathlib import Path
 
 from .face_encoder import FaceEncoder
@@ -17,6 +18,26 @@ from .anti_spoofing import AntiSpoofing
 from .decision_gate import DecisionGate
 from .utils import logger, draw_recognition_feedback_on_frame
 from .config import TRAINING_DIR
+from .gpio_lock_controller import GPIOLockController
+
+# Global variable to store the auth instance for cleanup
+auth_instance = None
+
+def signal_handler(signum, frame):
+    """Handle Ctrl+C and cleanup GPIO resources"""
+    global auth_instance
+    print("\n🛑 Interrupted! Cleaning up and securing lock...")
+    if auth_instance:
+        try:
+            auth_instance.lock_door("Emergency shutdown")
+            auth_instance.lock_controller.cleanup()
+        except:
+            pass
+    sys.exit(0)
+
+# Set up signal handler for graceful shutdown
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 def register_new_person(camera_handler, face_encoder):
     """Register a new person by taking their photos and training the model"""
@@ -43,13 +64,17 @@ def register_new_person(camera_handler, face_encoder):
 
 def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False, 
                    window: int = 15, min_live: int = 12, min_match: int = 12,
-                   live_threshold: float = 0.9):
+                   live_threshold: float = 0.9, auto_lock_delay: float = 10.0):
     """Run one-time authentication attempt"""
+    global auth_instance
+    
     auth = BiometricAuth(
         recognition_threshold=0.55, 
         model=model,
-        use_anti_spoofing=use_anti_spoofing
+        use_anti_spoofing=use_anti_spoofing,
+        auto_lock_delay=auto_lock_delay
     )
+    auth_instance = auth  # Store for cleanup
     
     # Add all users from training directory as authorized
     training_dir = TRAINING_DIR
@@ -69,6 +94,8 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
     anti_spoof_msg = " with anti-spoofing" if use_anti_spoofing else ""
     print(f"Starting authentication{anti_spoof_msg}...")
     print(f"Using window={window}, min_live={min_live}, min_match={min_match}")
+    print(f"Auto-lock delay: {auto_lock_delay} seconds")
+    print(f"Initial lock status: {auth.get_lock_status()}")
     print("Looking for authorized user. Press 'q' to quit.")
     
     # Start camera
@@ -139,8 +166,8 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
             
             if gate_result:
                 print(f"✅ Authentication successful - {matched_name}")
-                auth.unlock_lock(matched_name)
-                # Exit the program on successful authentication
+                auth.unlock_door(matched_name)
+                print(f"🔓 Door unlocked! Will auto-lock in {auto_lock_delay} seconds")
                 print("Exiting application after successful authentication...")
                 time.sleep(2)  # Allow time to see the success message
                 sys.exit(0)
@@ -148,12 +175,35 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
             # Show feedback on frame
             try:
                 annotated_frame = draw_recognition_feedback_on_frame(frame, results)
-                # Use actual values not symbols for clarity
-                status_text = f"Match: {is_match}, Live: {is_live}"
-                cv2.putText(annotated_frame, status_text, (10, 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0) if is_live and is_match else (0, 0, 255), 2)
                 
-                # Add frame counter
+                # Create a semi-transparent overlay for text background
+                overlay = annotated_frame.copy()
+                cv2.rectangle(overlay, (0, 0), (300, 70), (0, 0, 0), -1)
+                # Apply the overlay with transparency
+                alpha = 0.5
+                cv2.addWeighted(overlay, alpha, annotated_frame, 1 - alpha, 0, annotated_frame)
+                
+                # Different display based on whether faces are detected
+                if not results:
+                    # No faces detected - show only that message
+                    cv2.putText(annotated_frame, "No faces detected", (10, 30),
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                else:
+                    # Faces detected - show match and live status
+                    match_text = f"Match: {is_match}"
+                    live_text = f"Live: {is_live}"
+                    
+                    # Determine status color
+                    match_color = (0, 255, 0) if is_match else (0, 0, 255)
+                    live_color = (0, 255, 0) if is_live else (0, 0, 255)
+                    
+                    # Add status texts with separate positioning
+                    cv2.putText(annotated_frame, match_text, (10, 30), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, match_color, 2)
+                    cv2.putText(annotated_frame, live_text, (160, 30), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, live_color, 2)
+                
+                # Always show frame counter on a different line
                 cv2.putText(annotated_frame, f"Frame: {frame_count}/{max_frames}", (10, 60),
                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
                 
@@ -182,17 +232,28 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
             print("❌ Authentication failed")
     
     finally:
+        # Ensure lock is secured before exit
+        try:
+            auth.lock_door("Application exit")
+            auth.lock_controller.cleanup()
+        except:
+            pass
         camera.stop()
         cv2.destroyAllWindows()
 
-def run_continuous_monitoring(model: str = "hog", use_anti_spoofing: bool = False):
+def run_continuous_monitoring(model: str = "hog", use_anti_spoofing: bool = False, 
+                            auto_lock_delay: float = 10.0):
     """Run continuous monitoring and authentication"""
+    global auth_instance
+    
     auth = BiometricAuth(
-        recognition_threshold=0.55,  # Adjust based on your needs
-        consecutive_matches_required=3,  # How many frames must match
+        recognition_threshold=0.55,
+        consecutive_matches_required=3,
         model=model,
-        use_anti_spoofing=use_anti_spoofing
+        use_anti_spoofing=use_anti_spoofing,
+        auto_lock_delay=auto_lock_delay
     )
+    auth_instance = auth  # Store for cleanup
     
     # Add all users from training directory as authorized
     training_dir = TRAINING_DIR
@@ -216,6 +277,40 @@ def run_anti_spoofing_demo(camera_index: int = 0):
     
     spoof_detector = AntiSpoofing()
     spoof_detector.run_demo(camera_index=camera_index)
+
+def test_lock_system():
+    """Test the GPIO lock system"""
+    print("="*50)
+    print("        LOCK SYSTEM TEST")
+    print("="*50)
+    
+    controller = GPIOLockController()
+    
+    try:
+        print(f"Initial lock status: {controller.get_lock_status()}")
+        print("Testing lock system functionality...")
+        
+        # Test basic operations
+        print("\n1. Testing basic lock/unlock operations:")
+        controller.test_lock_cycle(cycles=2, delay=1.5)
+        
+        print("\n2. Testing auto-lock feature:")
+        controller.unlock_door("Auto-lock test")
+        print("   Waiting 3 seconds for auto-lock...")
+        controller.auto_lock_after_delay(3.0)
+        
+        print(f"\nFinal lock status: {controller.get_lock_status()}")
+        print("✅ Lock system test completed successfully!")
+        
+    except Exception as e:
+        print(f"❌ Lock system test failed: {e}")
+    finally:
+        controller.cleanup()
+
+def manual_lock_control():
+    """Manual lock control interface"""
+    from .gpio_lock_controller import manual_lock_control
+    manual_lock_control()
 
 def main():
     parser = argparse.ArgumentParser(description="Face Recognition Authentication System")
@@ -241,6 +336,8 @@ def main():
                            help="Minimum number of frames that must match an authorized user")
     auth_parser.add_argument("--live-threshold", type=float, default=0.9,
                            help="Threshold for liveness detection (0.0-1.0)")
+    auth_parser.add_argument("--auto-lock-delay", type=float, default=10.0,
+                           help="Seconds to wait before auto-locking after successful authentication")
     
     # Monitor command
     monitor_parser = subparsers.add_parser("monitor", 
@@ -249,6 +346,8 @@ def main():
                               help="Face detection model to use (hog is faster, cnn is more accurate)")
     monitor_parser.add_argument("--anti-spoofing", action="store_true",
                               help="Enable anti-spoofing detection to prevent fake face attacks")
+    monitor_parser.add_argument("--auto-lock-delay", type=float, default=10.0,
+                              help="Seconds to wait before auto-locking after successful authentication")
     
     # Regular Register command
     register_parser = subparsers.add_parser("register", 
@@ -268,6 +367,14 @@ def main():
     anti_spoof_parser.add_argument("--camera", type=int, default=0,
                                 help="Camera index to use (default: 0)")
     
+    # Lock testing command
+    test_lock_parser = subparsers.add_parser("test_lock",
+                                           help="Test the GPIO lock system functionality")
+    
+    # Manual lock control command
+    manual_lock_parser = subparsers.add_parser("manual_lock",
+                                             help="Manual lock control interface")
+    
     # Parse arguments
     args = parser.parse_args()
     
@@ -281,10 +388,11 @@ def main():
     elif args.command == "auth":
         run_authenticate(model=args.model, use_anti_spoofing=args.anti_spoofing,
                         window=args.window, min_live=args.min_live, min_match=args.min_match,
-                        live_threshold=args.live_threshold)
+                        live_threshold=args.live_threshold, auto_lock_delay=args.auto_lock_delay)
         
     elif args.command == "monitor":
-        run_continuous_monitoring(model=args.model, use_anti_spoofing=args.anti_spoofing)
+        run_continuous_monitoring(model=args.model, use_anti_spoofing=args.anti_spoofing,
+                                auto_lock_delay=args.auto_lock_delay)
         
     elif args.command == "register":
         camera = CameraHandler()
@@ -299,6 +407,12 @@ def main():
         
     elif args.command == "anti_spoof":
         run_anti_spoofing_demo(camera_index=args.camera)
+        
+    elif args.command == "test_lock":
+        test_lock_system()
+        
+    elif args.command == "manual_lock":
+        manual_lock_control()
         
     else:
         parser.print_help()

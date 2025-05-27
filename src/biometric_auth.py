@@ -9,13 +9,16 @@ from deepface import DeepFace
 from .camera_handler import CameraHandler
 from .face_recognizer import FaceRecognizer
 from .utils import logger, draw_recognition_feedback_on_frame
+from .gpio_lock_controller import GPIOLockController
 
 class BiometricAuth:
     def __init__(self, recognition_threshold: float = 0.6,
                  consecutive_matches_required: int = 3,
                  model: str = "hog",
                  use_threading: bool = True,
-                 use_anti_spoofing: bool = True):
+                 use_anti_spoofing: bool = True,
+                 gpio_pin: int = 18,
+                 auto_lock_delay: float = 10.0):
         """
         Initialize the biometric authentication system
         
@@ -25,6 +28,8 @@ class BiometricAuth:
             model: Face detection model to use (hog or cnn)
             use_threading: Whether to use a separate thread for face recognition
             use_anti_spoofing: Whether to enable anti-spoofing checks
+            gpio_pin: GPIO pin number for lock control (default: 18)
+            auto_lock_delay: Seconds to wait before auto-locking after successful auth
         """
         self.camera = CameraHandler()
         self.recognizer = FaceRecognizer(model=model, 
@@ -32,6 +37,11 @@ class BiometricAuth:
         self.consecutive_matches_required = consecutive_matches_required
         self.authorized_users = set()
         self.use_anti_spoofing = use_anti_spoofing
+        
+        # Initialize GPIO lock controller
+        self.lock_controller = GPIOLockController(gpio_pin)
+        self.auto_lock_delay = auto_lock_delay
+        self.auto_lock_timer = None
         
         # Threading-related attributes
         self.use_threading = use_threading
@@ -50,6 +60,63 @@ class BiometricAuth:
         if username in self.authorized_users:
             self.authorized_users.remove(username)
             logger.info(f"Removed {username} from authorized users")
+    
+    def _start_auto_lock_timer(self) -> None:
+        """Start the auto-lock timer"""
+        # Cancel any existing timer
+        self._cancel_auto_lock_timer()
+        
+        if self.auto_lock_delay > 0:
+            self.auto_lock_timer = threading.Timer(
+                self.auto_lock_delay, 
+                self._auto_lock_callback
+            )
+            self.auto_lock_timer.start()
+            logger.info(f"Auto-lock timer started: {self.auto_lock_delay} seconds")
+    
+    def _cancel_auto_lock_timer(self) -> None:
+        """Cancel the auto-lock timer"""
+        if self.auto_lock_timer and self.auto_lock_timer.is_alive():
+            self.auto_lock_timer.cancel()
+            logger.info("Auto-lock timer cancelled")
+    
+    def _auto_lock_callback(self) -> None:
+        """Callback function for auto-lock timer"""
+        self.lock_controller.lock_door("Auto-lock timeout")
+    
+    def unlock_door(self, username: str) -> bool:
+        """
+        Unlock the door and start auto-lock timer
+        
+        Args:
+            username: Name of the authenticated user
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        success = self.lock_controller.unlock_door(username)
+        if success:
+            # Start auto-lock timer
+            self._start_auto_lock_timer()
+        return success
+    
+    def lock_door(self, reason: str = "Manual") -> bool:
+        """
+        Lock the door and cancel auto-lock timer
+        
+        Args:
+            reason: Reason for locking
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        # Cancel auto-lock timer
+        self._cancel_auto_lock_timer()
+        return self.lock_controller.lock_door(reason)
+    
+    def get_lock_status(self) -> str:
+        """Get current lock status"""
+        return self.lock_controller.get_lock_status()
     
     def _recognition_worker(self):
         """Worker function for face recognition thread"""
@@ -246,7 +313,7 @@ class BiometricAuth:
                     if consecutive_matches[name] >= self.consecutive_matches_required:
                         logger.info(f"Authentication successful: {name}" +
                                    (f" (confidence: {confidence:.2f})" if single_authentication else ""))
-                        self.unlock_lock(name)
+                        self.unlock_door(name)
                         
                         if single_authentication:
                             return True, name
@@ -293,18 +360,6 @@ class BiometricAuth:
             max_attempts=max_attempts,
             timeout=timeout
         )
-    
-    def unlock_lock(self, username: str) -> None:
-        """
-        Placeholder method to unlock physical lock
-        
-        Args:
-            username: Name of the authenticated user
-        """
-        # This is a placeholder - not implemented yet
-        logger.info(f"UNLOCK REQUEST: Access granted to {username}")
-        print(f"🔓 Access granted to {username}")
-        # Future implementation will connect to physical lock mechanism
     
     def run_continuous_monitoring(self, 
                                 on_success: Optional[Callable[[str], None]] = None):

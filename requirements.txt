@@ -10,4 +10,5 @@ pillow==11.1.0
 deepface==0.0.93
 tf-keras==2.15.0
 torch==2.5.1
+gpiozero==2.0.1
 

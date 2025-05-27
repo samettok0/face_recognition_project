@@ -1,6 +1,6 @@
-# Face Recognition Biometric Authentication
+# Face Recognition Biometric Authentication with GPIO Lock Control
 
-A modern facial recognition system for biometric authentication using computer vision. This system is designed to provide secure access control through real-time face recognition.
+A modern facial recognition system for biometric authentication using computer vision, with integrated GPIO lock control for Raspberry Pi access control systems. This system provides secure access control through real-time face recognition with physical lock integration.
 
 Demo Video: https://www.youtube.com/watch?v=Fvyx59dDuRs
 
@@ -9,20 +9,47 @@ Demo Video: https://www.youtube.com/watch?v=Fvyx59dDuRs
 This project implements a video-based biometric authentication system that can:
 - Register new users by capturing face images
 - Authenticate users in real-time using face recognition
+- **Control physical locks via GPIO pins on Raspberry Pi**
+- **Automatically lock/unlock based on face recognition results**
+- **Provide auto-lock functionality with configurable delays**
 - Continuously monitor for authorized faces
 - Detect and analyze head pose for improved user experience
 - Provide guided registration with automatic pose detection
 - Prevent false positives with temporal voting mechanism
-- Provide a foundation for integration with physical lock mechanisms
 - Support both HOG and CNN face detection models
+- **Include comprehensive lock testing and manual control**
 
-The system focuses on accuracy and performance for secure biometric access control.
+The system focuses on accuracy and performance for secure biometric access control with real-world physical integration.
 
-## Requirements
+## Hardware Requirements
 
 - Python 3.8+
 - Webcam
+- **Raspberry Pi (for GPIO lock control)**
+- **Electronic lock mechanism (relay, solenoid, etc.)**
+- **Proper wiring to GPIO pin 18 (configurable)**
 - GPU (recommended for CNN model)
+
+## GPIO Lock Integration
+
+### Hardware Setup
+
+1. **Connect your lock mechanism to GPIO pin 18** (or configure a different pin)
+2. **Use appropriate relay/driver circuits** for high-power locks
+3. **Ensure proper power supply** for your lock mechanism
+4. **Test connections safely** before integrating with face recognition
+
+⚠️ **Safety Note**: Always test your lock mechanism thoroughly before deploying. Ensure you have backup access methods in case of system failure.
+
+### Lock Control Features
+
+- **Automatic unlock** when authorized face is detected
+- **Configurable auto-lock delay** (default: 10 seconds)
+- **Manual lock/unlock control** for testing and emergencies
+- **Lock status monitoring** and logging
+- **Graceful shutdown** with automatic lock securing
+- **Emergency interrupt handling** (Ctrl+C always locks the system)
+- **Simulation mode** for testing without actual GPIO hardware
 
 ## Installation
 
@@ -43,9 +70,60 @@ The system focuses on accuracy and performance for secure biometric access contr
    pip install -r requirements.txt
    ```
 
-   Note: Installation of `dlib` may require additional steps on some systems.
+   Note: The `gpiozero` library is included for Raspberry Pi GPIO control. On non-Raspberry Pi systems, the lock controller will run in simulation mode.
 
 ## Usage
+
+### Lock System Commands
+
+#### Test Lock Functionality
+```bash
+# Test the GPIO lock system
+python -m src.main test_lock
+
+# Manual lock control interface
+python -m src.main manual_lock
+
+# Comprehensive integration test
+python test_lock_integration.py [test_mode]
+```
+
+Test modes for `test_lock_integration.py`:
+- `lock_only`: Test just GPIO lock functionality
+- `simulation`: Test face recognition with simulated lock
+- `full`: Test complete integration (requires camera and registered users)
+- `manual`: Manual lock control interface
+
+### Authentication with Lock Control
+
+#### One-time Authentication with Lock
+```bash
+# Basic authentication with 10-second auto-lock
+python -m src.main auth
+
+# Authentication with custom auto-lock delay
+python -m src.main auth --auto-lock-delay 5.0
+
+# Secure authentication with anti-spoofing and fast auto-lock
+python -m src.main auth --anti-spoofing --auto-lock-delay 3.0
+```
+
+#### Continuous Monitoring with Lock
+```bash
+# Continuous monitoring with lock control
+python -m src.main monitor
+
+# Monitoring with custom auto-lock delay
+python -m src.main monitor --auto-lock-delay 15.0
+
+# Secure monitoring with anti-spoofing
+python -m src.main monitor --anti-spoofing --auto-lock-delay 8.0
+```
+
+### Lock Control Options
+
+All authentication commands now support:
+- `--auto-lock-delay SECONDS`: Time to wait before auto-locking after successful authentication (default: 10.0)
 
 ### Register a New User
 
