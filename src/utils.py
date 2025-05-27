@@ -124,7 +124,9 @@ def draw_recognition_feedback_on_frame(frame: np.ndarray,
         
         # If we have no results, return early
         if not results:
-            # Don't add "No faces detected" text here - we'll handle it in main.py
+            # Add text showing no faces detected
+            cv2.putText(annotated_frame, "No faces detected", (10, 30),
+                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             return annotated_frame
         
         for result in results:
