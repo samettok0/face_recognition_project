@@ -9,6 +9,7 @@ from deepface import DeepFace
 from .camera_handler import CameraHandler
 from .face_recognizer import FaceRecognizer
 from .utils import logger, draw_recognition_feedback_on_frame
+from .gpio_lock_controller import unlock_for_user
 
 class BiometricAuth:
     def __init__(self, recognition_threshold: float = 0.6,
@@ -296,15 +297,20 @@ class BiometricAuth:
     
     def unlock_lock(self, username: str) -> None:
         """
-        Placeholder method to unlock physical lock
+        Unlock physical lock for authenticated user
         
         Args:
             username: Name of the authenticated user
         """
-        # This is a placeholder - not implemented yet
-        logger.info(f"UNLOCK REQUEST: Access granted to {username}")
-        print(f"🔓 Access granted to {username}")
-        # Future implementation will connect to physical lock mechanism
+        try:
+            success = unlock_for_user(username, duration=5.0)
+            if success:
+                logger.info(f"🔓 Lock successfully unlocked for {username}")
+            else:
+                logger.error(f"❌ Failed to unlock lock for {username}")
+        except Exception as e:
+            logger.error(f"Error unlocking lock for {username}: {e}")
+            print(f"❌ Error unlocking lock: {e}")
     
     def run_continuous_monitoring(self, 
                                 on_success: Optional[Callable[[str], None]] = None):
