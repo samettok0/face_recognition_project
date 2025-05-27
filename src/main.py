@@ -17,7 +17,6 @@ from .anti_spoofing import AntiSpoofing
 from .decision_gate import DecisionGate
 from .utils import logger, draw_recognition_feedback_on_frame
 from .config import TRAINING_DIR
-from .gpio_lock_controller import get_lock_controller
 
 def register_new_person(camera_handler, face_encoder):
     """Register a new person by taking their photos and training the model"""
@@ -149,35 +148,12 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
             # Show feedback on frame
             try:
                 annotated_frame = draw_recognition_feedback_on_frame(frame, results)
+                # Use actual values not symbols for clarity
+                status_text = f"Match: {is_match}, Live: {is_live}"
+                cv2.putText(annotated_frame, status_text, (10, 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0) if is_live and is_match else (0, 0, 255), 2)
                 
-                # Create a semi-transparent overlay for text background
-                overlay = annotated_frame.copy()
-                cv2.rectangle(overlay, (0, 0), (300, 70), (0, 0, 0), -1)
-                # Apply the overlay with transparency
-                alpha = 0.5
-                cv2.addWeighted(overlay, alpha, annotated_frame, 1 - alpha, 0, annotated_frame)
-                
-                # Different display based on whether faces are detected
-                if not results:
-                    # No faces detected - show only that message
-                    cv2.putText(annotated_frame, "No faces detected", (10, 30),
-                              cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                else:
-                    # Faces detected - show match and live status
-                    match_text = f"Match: {is_match}"
-                    live_text = f"Live: {is_live}"
-                    
-                    # Determine status color
-                    match_color = (0, 255, 0) if is_match else (0, 0, 255)
-                    live_color = (0, 255, 0) if is_live else (0, 0, 255)
-                    
-                    # Add status texts with separate positioning
-                    cv2.putText(annotated_frame, match_text, (10, 30), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, match_color, 2)
-                    cv2.putText(annotated_frame, live_text, (160, 30), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, live_color, 2)
-                
-                # Always show frame counter on a different line
+                # Add frame counter
                 cv2.putText(annotated_frame, f"Frame: {frame_count}/{max_frames}", (10, 60),
                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
                 
@@ -291,16 +267,6 @@ def main():
                                           help="Run anti-spoofing detection demo")
     anti_spoof_parser.add_argument("--camera", type=int, default=0,
                                 help="Camera index to use (default: 0)")
-
-    # Lock test command
-    lock_test_parser = subparsers.add_parser("lock-test",
-                                          help="Test GPIO lock functionality")
-    lock_test_parser.add_argument("--pin", type=int, default=14,
-                                help="GPIO pin for lock control (default: 14)")
-    lock_test_parser.add_argument("--cycles", type=int, default=3,
-                                help="Number of test cycles (default: 3)")
-    lock_test_parser.add_argument("--duration", type=float, default=2.0,
-                                help="Duration per state in seconds (default: 2.0)")
     
     # Parse arguments
     args = parser.parse_args()
@@ -333,12 +299,6 @@ def main():
         
     elif args.command == "anti_spoof":
         run_anti_spoofing_demo(camera_index=args.camera)
-        
-    elif args.command == "lock-test":
-        print("Testing GPIO lock functionality...")
-        controller = get_lock_controller(pin=args.pin)
-        controller.test_lock_cycle(cycles=args.cycles, cycle_duration=args.duration)
-        print("Lock test complete!")
         
     else:
         parser.print_help()
