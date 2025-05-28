@@ -217,6 +217,47 @@ def run_anti_spoofing_demo(camera_index: int = 0):
     spoof_detector = AntiSpoofing()
     spoof_detector.run_demo(camera_index=camera_index)
 
+def run_lock_test(cycles: int = 3):
+    """Test the GPIO lock functionality"""
+    from .gpio_lock import GPIOLock
+    from .config import GPIO_LOCK_PIN, LOCK_UNLOCK_DURATION
+    
+    print("="*50)
+    print("        GPIO LOCK TEST")
+    print("="*50)
+    print(f"Testing GPIO lock on pin {GPIO_LOCK_PIN}")
+    print(f"Unlock duration: {LOCK_UNLOCK_DURATION} seconds")
+    print()
+    
+    # Initialize lock
+    lock = GPIOLock(gpio_pin=GPIO_LOCK_PIN, unlock_duration=LOCK_UNLOCK_DURATION)
+    
+    try:
+        # Show initial status
+        print(f"Initial lock status: {lock.get_status()}")
+        print()
+        
+        # Run test cycle
+        success = lock.test_lock_cycle(cycles=cycles)
+        
+        if success:
+            print("\n✅ Lock test completed successfully!")
+        else:
+            print("\n❌ Lock test failed!")
+            
+        # Test individual unlock
+        print("\n--- Testing individual unlock ---")
+        lock.unlock("TestUser")
+        
+        print(f"\nFinal lock status: {lock.get_status()}")
+        
+    except Exception as e:
+        print(f"❌ Lock test error: {e}")
+    finally:
+        # Ensure cleanup
+        lock.cleanup()
+        print("\nLock test completed.")
+
 def main():
     parser = argparse.ArgumentParser(description="Face Recognition Authentication System")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
@@ -268,6 +309,12 @@ def main():
     anti_spoof_parser.add_argument("--camera", type=int, default=0,
                                 help="Camera index to use (default: 0)")
     
+    # Lock test command
+    lock_test_parser = subparsers.add_parser("lock_test",
+                                           help="Test the GPIO lock functionality")
+    lock_test_parser.add_argument("--cycles", type=int, default=3,
+                                help="Number of lock/unlock cycles to test (default: 3)")
+    
     # Parse arguments
     args = parser.parse_args()
     
@@ -299,6 +346,9 @@ def main():
         
     elif args.command == "anti_spoof":
         run_anti_spoofing_demo(camera_index=args.camera)
+        
+    elif args.command == "lock_test":
+        run_lock_test(cycles=args.cycles)
         
     else:
         parser.print_help()

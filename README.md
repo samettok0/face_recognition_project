@@ -145,6 +145,130 @@ This will start a real-time demo showing:
 
 This feature is useful for improving authentication by ensuring users are properly positioned.
 
+### GPIO Lock Control (Raspberry Pi)
+
+The system includes GPIO lock control functionality for physical door locks on Raspberry Pi. When authentication succeeds, the system can automatically unlock a physical lock mechanism.
+
+#### Hardware Setup
+
+1. **Connect your lock mechanism to GPIO pin 18** (BCM numbering, physical pin 12)
+2. **Use a relay module** to control high-voltage lock mechanisms safely
+3. **Ensure proper power supply** for your lock mechanism
+
+**Wiring Example:**
+```
+Raspberry Pi GPIO 18 → Relay Module Signal Pin
+Relay Module VCC → 5V or 3.3V (depending on relay)
+Relay Module GND → Ground
+Lock Mechanism → Relay NO/NC contacts
+```
+
+#### Software Setup
+
+1. **Install GPIO library** (if not already installed):
+   ```bash
+   pip install lgpio
+   ```
+
+2. **Add user to gpio group** (to run without sudo):
+   ```bash
+   sudo usermod -a -G gpio $USER
+   sudo reboot
+   ```
+
+#### Testing the Lock
+
+Before using with authentication, test the lock functionality:
+
+**Using the built-in test command:**
+```bash
+python -m src.main lock_test [--cycles 3]
+```
+
+**Using the standalone test script:**
+```bash
+# Basic test
+python test_lock.py
+
+# Manual control mode
+python test_lock.py --manual
+
+# Custom test cycles
+python test_lock.py --cycles 5
+
+# Override GPIO pin
+python test_lock.py --pin 20 --duration 3.0
+```
+
+The manual control mode provides interactive commands:
+- `unlock` or `u` - Unlock the door
+- `lock` or `l` - Lock the door  
+- `status` or `s` - Check lock status
+- `test` or `t` - Run test cycle
+- `auth` or `a` - Simulate authentication unlock
+- `quit` or `q` - Exit
+
+#### Configuration
+
+Lock settings can be configured in `src/config.py`:
+
+```python
+# GPIO Lock settings
+GPIO_LOCK_PIN = 18  # BCM pin number for lock control
+LOCK_UNLOCK_DURATION = 5.0  # How long to keep lock unlocked (seconds)
+ENABLE_GPIO_LOCK = True  # Set to False to disable physical lock
+```
+
+#### Using with Authentication
+
+The lock automatically activates when authentication succeeds:
+
+```bash
+# Authentication with lock control
+python -m src.main auth --anti-spoofing
+
+# Continuous monitoring with lock control
+python -m src.main monitor --anti-spoofing
+```
+
+When an authorized user is authenticated:
+1. The system logs the successful authentication
+2. GPIO pin 18 is activated (HIGH) to unlock the door
+3. The lock remains unlocked for the configured duration (default: 5 seconds)
+4. GPIO pin 18 is deactivated (LOW) to lock the door again
+5. The system continues monitoring (in monitor mode)
+
+#### Lock Behavior
+
+- **Default State**: Locked (GPIO pin LOW)
+- **Unlock Duration**: 5 seconds (configurable)
+- **Automatic Re-lock**: Yes, after unlock duration expires
+- **Fail-Safe**: Lock defaults to locked state on errors or system shutdown
+- **Simulation Mode**: If GPIO is unavailable, lock operations are simulated with console output
+
+#### Troubleshooting
+
+**Permission Errors:**
+```bash
+# Add user to gpio group and reboot
+sudo usermod -a -G gpio $USER
+sudo reboot
+```
+
+**GPIO Library Issues:**
+```bash
+# Install lgpio for Raspberry Pi 5
+pip install lgpio
+
+# For older Pi models, you might need RPi.GPIO
+pip install RPi.GPIO
+```
+
+**Testing Without Hardware:**
+- Set `ENABLE_GPIO_LOCK = False` in config.py
+- The system will simulate lock operations with console output
+- Useful for development and testing
+
 ### Retraining the Model
 
 If you need to update the face recognition model after adding new users:
@@ -217,12 +341,14 @@ Adjust these parameters based on your security requirements and desired response
   - `decision_gate.py`: Temporal voting mechanism
   - `face_encoder.py`: Face encoding and model training
   - `face_recognizer.py`: Face recognition algorithms
+  - `gpio_lock.py`: GPIO lock control for Raspberry Pi
   - `guided_registration.py`: Guided user registration with head pose detection
   - `head_pose_detector.py`: Head pose estimation and analysis
   - `head_pose_demo.py`: Demo application for head pose detection
   - `main.py`: Command-line interface
   - `anti_spoofing.py`: Liveness detection to prevent spoofing
   - `utils.py`: Utility functions
+- `test_lock.py`: Standalone GPIO lock testing script
 
 ## Improving Recognition Accuracy
 
@@ -251,10 +377,13 @@ If you experience incorrect identifications:
 
 ## Future Enhancements
 
-- Hardware integration for physical lock control
+- ✅ Hardware integration for physical lock control (implemented)
 - Multi-factor authentication
 - Advanced liveness detection methods
 - Mobile app control
+- Web-based administration interface
+- Multiple lock support
+- Access logging and audit trails
 
 ## Anti-Spoofing Detection
 

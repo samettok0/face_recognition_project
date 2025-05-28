@@ -1,6 +1,6 @@
 import cv2
 import time
-import numpy as np
+import logging
 import threading
 import queue
 from typing import Optional, Callable, List, Tuple
@@ -8,9 +8,24 @@ from deepface import DeepFace
 
 from .camera_handler import CameraHandler
 from .face_recognizer import FaceRecognizer
-from .utils import logger, draw_recognition_feedback_on_frame
+from .utils import draw_recognition_feedback_on_frame
+from .gpio_lock import GPIOLock
+from .config import GPIO_LOCK_PIN, LOCK_UNLOCK_DURATION, ENABLE_GPIO_LOCK
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 class BiometricAuth:
+    """
+    Biometric authentication system using face recognition
+    
+    This class handles the complete authentication pipeline including:
+    - Face detection and recognition
+    - Anti-spoofing verification
+    - Physical lock control via GPIO
+    - Continuous monitoring capabilities
+    """
+    
     def __init__(self, recognition_threshold: float = 0.6,
                  consecutive_matches_required: int = 3,
                  model: str = "hog",
@@ -20,37 +35,47 @@ class BiometricAuth:
         Initialize the biometric authentication system
         
         Args:
-            recognition_threshold: Threshold for face recognition (0-1, higher = stricter)
-            consecutive_matches_required: Number of consecutive matches required for auth
-            model: Face detection model to use (hog or cnn)
-            use_threading: Whether to use a separate thread for face recognition
-            use_anti_spoofing: Whether to enable anti-spoofing checks
+            recognition_threshold: Minimum confidence for face recognition
+            consecutive_matches_required: Number of consecutive matches needed for authentication
+            model: Face detection model ("hog" or "cnn")
+            use_threading: Whether to use threading for face recognition
+            use_anti_spoofing: Whether to enable anti-spoofing detection
         """
-        self.camera = CameraHandler()
-        self.recognizer = FaceRecognizer(model=model, 
-                                         recognition_threshold=recognition_threshold)
+        self.recognition_threshold = recognition_threshold
         self.consecutive_matches_required = consecutive_matches_required
-        self.authorized_users = set()
+        self.use_threading = use_threading
         self.use_anti_spoofing = use_anti_spoofing
         
-        # Threading-related attributes
-        self.use_threading = use_threading
-        self.recognition_thread = None
-        self.processing_queue = queue.Queue(maxsize=1)  # Only process most recent frame
-        self.results_queue = queue.Queue()
-        self.should_stop = threading.Event()
+        # Initialize components
+        self.recognizer = FaceRecognizer(threshold=recognition_threshold, model=model)
+        self.camera = CameraHandler()
+        self.authorized_users = set()
         
+        # Initialize GPIO lock
+        if ENABLE_GPIO_LOCK:
+            self.gpio_lock = GPIOLock(gpio_pin=GPIO_LOCK_PIN, unlock_duration=LOCK_UNLOCK_DURATION)
+        else:
+            self.gpio_lock = None
+            logger.info("GPIO lock disabled in configuration")
+        
+        # Threading components
+        if use_threading:
+            self.processing_queue = queue.Queue(maxsize=2)
+            self.results_queue = queue.Queue()
+            self.should_stop = threading.Event()
+            self.recognition_thread = None
+
     def add_authorized_user(self, username: str) -> None:
         """Add a user to the authorized users list"""
         self.authorized_users.add(username)
-        logger.info(f"Added {username} to authorized users")
-        
+        logger.info(f"Added authorized user: {username}")
+
     def remove_authorized_user(self, username: str) -> None:
         """Remove a user from the authorized users list"""
         if username in self.authorized_users:
             self.authorized_users.remove(username)
-            logger.info(f"Removed {username} from authorized users")
-    
+            logger.info(f"Removed authorized user: {username}")
+
     def _recognition_worker(self):
         """Worker function for face recognition thread"""
         logger.info("Face recognition thread started")
@@ -296,15 +321,28 @@ class BiometricAuth:
     
     def unlock_lock(self, username: str) -> None:
         """
-        Placeholder method to unlock physical lock
+        Unlock the physical lock for an authenticated user
         
         Args:
             username: Name of the authenticated user
         """
-        # This is a placeholder - not implemented yet
-        logger.info(f"UNLOCK REQUEST: Access granted to {username}")
-        print(f"🔓 Access granted to {username}")
-        # Future implementation will connect to physical lock mechanism
+        try:
+            if self.gpio_lock:
+                # Use physical GPIO lock
+                success = self.gpio_lock.unlock(username)
+                if success:
+                    logger.info(f"🔓 LOCK UNLOCKED: Access granted to {username}")
+                else:
+                    logger.error(f"Failed to unlock lock for {username}")
+            else:
+                # Fallback to simulation if GPIO lock is disabled
+                logger.info(f"🔓 SIMULATED UNLOCK: Access granted to {username} (GPIO disabled)")
+                print(f"🔓 SIMULATED UNLOCK: Access granted to {username}")
+                print("   (GPIO lock is disabled in configuration)")
+                
+        except Exception as e:
+            logger.error(f"Error during unlock operation for {username}: {e}")
+            print(f"❌ Error during unlock operation: {e}")
     
     def run_continuous_monitoring(self, 
                                 on_success: Optional[Callable[[str], None]] = None):
@@ -318,4 +356,31 @@ class BiometricAuth:
             window_name="Monitoring",
             single_authentication=False,
             on_success=on_success
-        ) 
+        )
+    
+    def cleanup(self):
+        """
+        Clean up resources including GPIO lock
+        """
+        try:
+            # Stop any running threads
+            if self.use_threading and self.recognition_thread:
+                self.should_stop.set()
+                self.recognition_thread.join(timeout=1.0)
+            
+            # Stop camera
+            if hasattr(self, 'camera'):
+                self.camera.stop()
+            
+            # Clean up GPIO lock
+            if self.gpio_lock:
+                self.gpio_lock.cleanup()
+                
+            logger.info("BiometricAuth cleanup completed")
+            
+        except Exception as e:
+            logger.error(f"Error during BiometricAuth cleanup: {e}")
+    
+    def __del__(self):
+        """Destructor to ensure cleanup"""
+        self.cleanup() 
