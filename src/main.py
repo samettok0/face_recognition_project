@@ -220,17 +220,19 @@ def run_anti_spoofing_demo(camera_index: int = 0):
 def run_lock_test(cycles: int = 3):
     """Test the GPIO lock functionality"""
     from .gpio_lock import GPIOLock
-    from .config import GPIO_LOCK_PIN, LOCK_UNLOCK_DURATION
+    from .config import GPIO_LOCK_PIN, LOCK_UNLOCK_DURATION, GPIO_LOCK_ACTIVE_HIGH
     
     print("="*50)
     print("        GPIO LOCK TEST")
     print("="*50)
     print(f"Testing GPIO lock on pin {GPIO_LOCK_PIN}")
     print(f"Unlock duration: {LOCK_UNLOCK_DURATION} seconds")
+    relay_type = "active HIGH" if GPIO_LOCK_ACTIVE_HIGH else "active LOW"
+    print(f"Relay type: {relay_type}")
     print()
     
     # Initialize lock
-    lock = GPIOLock(gpio_pin=GPIO_LOCK_PIN, unlock_duration=LOCK_UNLOCK_DURATION)
+    lock = GPIOLock(gpio_pin=GPIO_LOCK_PIN, unlock_duration=LOCK_UNLOCK_DURATION, active_high=GPIO_LOCK_ACTIVE_HIGH)
     
     try:
         # Show initial status

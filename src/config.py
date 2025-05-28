@@ -26,6 +26,7 @@ FRAME_HEIGHT = 240  # Lower resolution for better performance on Raspberry Pi
 GPIO_LOCK_PIN = 18  # BCM pin number for lock control (physical pin 12)
 LOCK_UNLOCK_DURATION = 5.0  # How long to keep lock unlocked (seconds)
 ENABLE_GPIO_LOCK = True  # Set to False to disable physical lock and use simulation only
+GPIO_LOCK_ACTIVE_HIGH = False  # Set to True if relay is active HIGH, False if active LOW
 
 # Head pose settings
 # Multipliers for sensitivity scaling - higher values = more sensitive

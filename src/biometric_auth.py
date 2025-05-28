@@ -10,7 +10,7 @@ from .camera_handler import CameraHandler
 from .face_recognizer import FaceRecognizer
 from .utils import draw_recognition_feedback_on_frame
 from .gpio_lock import GPIOLock
-from .config import GPIO_LOCK_PIN, LOCK_UNLOCK_DURATION, ENABLE_GPIO_LOCK
+from .config import GPIO_LOCK_PIN, LOCK_UNLOCK_DURATION, ENABLE_GPIO_LOCK, GPIO_LOCK_ACTIVE_HIGH
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -47,13 +47,13 @@ class BiometricAuth:
         self.use_anti_spoofing = use_anti_spoofing
         
         # Initialize components
-        self.recognizer = FaceRecognizer(threshold=recognition_threshold, model=model)
+        self.recognizer = FaceRecognizer(recognition_threshold=recognition_threshold, model=model)
         self.camera = CameraHandler()
         self.authorized_users = set()
         
         # Initialize GPIO lock
         if ENABLE_GPIO_LOCK:
-            self.gpio_lock = GPIOLock(gpio_pin=GPIO_LOCK_PIN, unlock_duration=LOCK_UNLOCK_DURATION)
+            self.gpio_lock = GPIOLock(gpio_pin=GPIO_LOCK_PIN, unlock_duration=LOCK_UNLOCK_DURATION, active_high=GPIO_LOCK_ACTIVE_HIGH)
         else:
             self.gpio_lock = None
             logger.info("GPIO lock disabled in configuration")

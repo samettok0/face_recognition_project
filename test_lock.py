@@ -22,7 +22,7 @@ sys.path.append(str(Path(__file__).parent / "src"))
 
 try:
     from gpio_lock import GPIOLock
-    from config import GPIO_LOCK_PIN, LOCK_UNLOCK_DURATION
+    from config import GPIO_LOCK_PIN, LOCK_UNLOCK_DURATION, GPIO_LOCK_ACTIVE_HIGH
 except ImportError as e:
     print(f"Error importing modules: {e}")
     print("Make sure you're running this from the project root directory.")
@@ -35,11 +35,13 @@ def run_basic_test(cycles: int = 3):
     print("="*50)
     print(f"Testing GPIO lock on pin {GPIO_LOCK_PIN}")
     print(f"Unlock duration: {LOCK_UNLOCK_DURATION} seconds")
+    relay_type = "active HIGH" if GPIO_LOCK_ACTIVE_HIGH else "active LOW"
+    print(f"Relay type: {relay_type}")
     print(f"Test cycles: {cycles}")
     print()
     
     # Initialize lock
-    lock = GPIOLock(gpio_pin=GPIO_LOCK_PIN, unlock_duration=LOCK_UNLOCK_DURATION)
+    lock = GPIOLock(gpio_pin=GPIO_LOCK_PIN, unlock_duration=LOCK_UNLOCK_DURATION, active_high=GPIO_LOCK_ACTIVE_HIGH)
     
     try:
         # Show initial status
@@ -75,10 +77,12 @@ def run_manual_control():
     print("="*50)
     print(f"GPIO Pin: {GPIO_LOCK_PIN}")
     print(f"Unlock Duration: {LOCK_UNLOCK_DURATION} seconds")
+    relay_type = "active HIGH" if GPIO_LOCK_ACTIVE_HIGH else "active LOW"
+    print(f"Relay type: {relay_type}")
     print()
     
     # Initialize lock
-    lock = GPIOLock(gpio_pin=GPIO_LOCK_PIN, unlock_duration=LOCK_UNLOCK_DURATION)
+    lock = GPIOLock(gpio_pin=GPIO_LOCK_PIN, unlock_duration=LOCK_UNLOCK_DURATION, active_high=GPIO_LOCK_ACTIVE_HIGH)
     
     print("Manual Lock Control Commands:")
     print("  'unlock' or 'u' - Unlock the door")
@@ -139,6 +143,8 @@ def run_manual_control():
         print("\nManual control session ended.")
 
 def main():
+    global GPIO_LOCK_PIN, LOCK_UNLOCK_DURATION, GPIO_LOCK_ACTIVE_HIGH
+    
     parser = argparse.ArgumentParser(description="GPIO Lock Test Script")
     parser.add_argument("--cycles", type=int, default=3,
                        help="Number of test cycles to run (default: 3)")
@@ -148,19 +154,32 @@ def main():
                        help="Override GPIO pin number (default: from config)")
     parser.add_argument("--duration", type=float, default=None,
                        help="Override unlock duration in seconds (default: from config)")
+    parser.add_argument("--active-high", action="store_true", default=None,
+                       help="Set relay to active HIGH (default: from config)")
+    parser.add_argument("--active-low", action="store_true", default=None,
+                       help="Set relay to active LOW (default: from config)")
     
     args = parser.parse_args()
     
     # Override config values if specified
     if args.pin is not None:
-        global GPIO_LOCK_PIN
         GPIO_LOCK_PIN = args.pin
         print(f"Using GPIO pin {GPIO_LOCK_PIN} (overridden)")
         
     if args.duration is not None:
-        global LOCK_UNLOCK_DURATION
         LOCK_UNLOCK_DURATION = args.duration
         print(f"Using unlock duration {LOCK_UNLOCK_DURATION}s (overridden)")
+    
+    # Handle active high/low override
+    if args.active_high and args.active_low:
+        print("Error: Cannot specify both --active-high and --active-low")
+        sys.exit(1)
+    elif args.active_high:
+        GPIO_LOCK_ACTIVE_HIGH = True
+        print("Using active HIGH relay (overridden)")
+    elif args.active_low:
+        GPIO_LOCK_ACTIVE_HIGH = False
+        print("Using active LOW relay (overridden)")
     
     try:
         if args.manual:

@@ -217,7 +217,14 @@ Lock settings can be configured in `src/config.py`:
 GPIO_LOCK_PIN = 18  # BCM pin number for lock control
 LOCK_UNLOCK_DURATION = 5.0  # How long to keep lock unlocked (seconds)
 ENABLE_GPIO_LOCK = True  # Set to False to disable physical lock
+GPIO_LOCK_ACTIVE_HIGH = False  # Set to True if relay is active HIGH, False if active LOW
 ```
+
+**Important: Relay Configuration**
+- **Active HIGH relay**: Set `GPIO_LOCK_ACTIVE_HIGH = True` - GPIO HIGH unlocks, GPIO LOW locks
+- **Active LOW relay**: Set `GPIO_LOCK_ACTIVE_HIGH = False` - GPIO LOW unlocks, GPIO HIGH locks
+
+Most common relay modules are **active LOW**, so the default setting should work. If your lock behavior is inverted (lock command unlocks, unlock command locks), change this setting to `True`.
 
 #### Using with Authentication
 
@@ -263,6 +270,12 @@ pip install lgpio
 # For older Pi models, you might need RPi.GPIO
 pip install RPi.GPIO
 ```
+
+**Inverted Lock Behavior:**
+If your lock operates in reverse (lock command unlocks, unlock command locks):
+1. Edit `src/config.py`
+2. Change `GPIO_LOCK_ACTIVE_HIGH = False` to `GPIO_LOCK_ACTIVE_HIGH = True`
+3. Test with: `python test_lock.py --cycles 1`
 
 **Testing Without Hardware:**
 - Set `ENABLE_GPIO_LOCK = False` in config.py
