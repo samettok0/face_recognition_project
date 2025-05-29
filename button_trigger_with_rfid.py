@@ -19,6 +19,17 @@ import keyboard
 import queue
 import select
 
+# Import GPIO lock functionality
+try:
+    sys.path.append(str(Path(__file__).parent / "src"))
+    from src.gpio_lock import GPIOLock
+    from src.config import GPIO_LOCK_PIN, LOCK_UNLOCK_DURATION, ENABLE_GPIO_LOCK, GPIO_LOCK_ACTIVE_HIGH
+    LOCK_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Could not import lock modules: {e}")
+    print("RFID unlock will be simulated only.")
+    LOCK_AVAILABLE = False
+
 class FaceRecognitionButtonTrigger:
     def __init__(self, gpio_pin=16, buzzer_pin=26, debounce_time=0.5, cooldown_time=3.0):
         """
@@ -41,6 +52,17 @@ class FaceRecognitionButtonTrigger:
         self.last_press_time = 0
         self.last_auth_end_time = 0
         
+        # Initialize GPIO lock for RFID unlock
+        if LOCK_AVAILABLE and ENABLE_GPIO_LOCK:
+            self.gpio_lock = GPIOLock(gpio_pin=GPIO_LOCK_PIN, unlock_duration=LOCK_UNLOCK_DURATION, active_high=GPIO_LOCK_ACTIVE_HIGH)
+            print(f"🔒 GPIO Lock initialized for RFID backup on pin {GPIO_LOCK_PIN}")
+        else:
+            self.gpio_lock = None
+            if LOCK_AVAILABLE:
+                print("⚠️  GPIO lock disabled in configuration - RFID unlock will be simulated")
+            else:
+                print("⚠️  GPIO lock not available - RFID unlock will be simulated")
+        
         # RFID settings
         self.rfid_timeout = 30  # 30 seconds to scan RFID after face auth fails
         self.rfid_input_buffer = ""
@@ -59,6 +81,12 @@ class FaceRecognitionButtonTrigger:
         print(f"Buzzer initialized on GPIO pin {buzzer_pin}")
         print(f"RFID backup system initialized")
         print(f"Authorized RFID cards: {len(self.authorized_rfid_cards)}")
+        if self.gpio_lock:
+            lock_type = "active HIGH" if GPIO_LOCK_ACTIVE_HIGH else "active LOW"
+            print(f"🔒 Physical lock control enabled on GPIO pin {GPIO_LOCK_PIN} ({lock_type})")
+            print(f"🔒 Lock unlock duration: {LOCK_UNLOCK_DURATION} seconds")
+        else:
+            print("🔒 Physical lock control: DISABLED (simulation mode)")
         print(f"Debounce time: {debounce_time}s, Cooldown time: {cooldown_time}s")
         print("Press the button to start face recognition authentication...")
         
@@ -166,10 +194,28 @@ class FaceRecognitionButtonTrigger:
     def unlock_via_rfid(self, card_name):
         """Unlock using RFID authentication"""
         print(f"🔓 Unlocking via RFID - {card_name}")
-        # Here you would trigger your lock mechanism
-        # For now, we'll simulate it
-        time.sleep(1)
-        print("🎉 Lock opened via RFID backup authentication!")
+        
+        try:
+            if self.gpio_lock:
+                # Use physical GPIO lock - same as face recognition system
+                success = self.gpio_lock.unlock(card_name)
+                if success:
+                    print("🎉 Lock opened via RFID backup authentication!")
+                else:
+                    print("❌ Failed to unlock via RFID - lock operation failed")
+                    self.buzzer_camera_error()  # Use error buzzer pattern
+            else:
+                # Fallback to simulation if GPIO lock is not available
+                print("🔓 SIMULATED RFID UNLOCK: Access granted")
+                print(f"   (Would unlock for {LOCK_UNLOCK_DURATION if LOCK_AVAILABLE else 5.0} seconds)")
+                # Simulate the unlock duration
+                time.sleep(LOCK_UNLOCK_DURATION if LOCK_AVAILABLE else 5.0)
+                print("🔒 Simulated lock secured again")
+                print("🎉 Simulated lock opened via RFID backup authentication!")
+                
+        except Exception as e:
+            print(f"❌ Error during RFID unlock operation: {e}")
+            self.buzzer_camera_error()
         
         # Reset states
         self.rfid_backup_active = False
@@ -473,6 +519,11 @@ class FaceRecognitionButtonTrigger:
         self.button.close()
         self.buzzer.close()
         
+        # Clean up GPIO lock
+        if self.gpio_lock:
+            self.gpio_lock.cleanup()
+            print("🔒 GPIO lock cleanup completed")
+        
     def run(self):
         """Main run loop"""
         try:
@@ -481,6 +532,11 @@ class FaceRecognitionButtonTrigger:
             print(f"   - Button debouncing: {self.debounce_time}s minimum between presses")
             print(f"   - Authentication cooldown: {self.cooldown_time}s after each attempt")
             print("   - No queuing of multiple button presses")
+            if self.gpio_lock:
+                lock_type = "active HIGH" if GPIO_LOCK_ACTIVE_HIGH else "active LOW"
+                print(f"🔒 Physical lock control: GPIO pin {GPIO_LOCK_PIN} ({lock_type}), {LOCK_UNLOCK_DURATION}s unlock duration")
+            else:
+                print("🔒 Physical lock control: DISABLED (simulation mode)")
             print("🔊 Buzzer feedback enabled:")
             print("   - Button press: Short beep")
             print("   - Auth start: 3 beeps")
