@@ -103,92 +103,36 @@ class FaceRecognitionButtonTrigger:
         """Setup RFID input monitoring"""
         def rfid_input_thread():
             """Monitor for RFID input in a separate thread"""
-            import sys
-            import tty
-            import termios
-            
-            # Save original terminal settings
-            try:
-                original_settings = termios.tcgetattr(sys.stdin)
-            except:
-                original_settings = None
-            
             current_input = ""
-            last_input_time = 0
             
             while True:
                 try:
-                    # Use non-blocking input reading
-                    import select
-                    
-                    # Check if input is available
+                    # Monitor stdin for RFID input (acts like keyboard)
                     if select.select([sys.stdin], [], [], 0.1)[0]:
-                        try:
-                            # Read available characters
-                            char = sys.stdin.read(1)
-                            current_time = time.time()
-                            
-                            # Reset input if too much time has passed (new scan)
-                            if current_time - last_input_time > 1.0:
+                        char = sys.stdin.read(1)
+                        
+                        if char.isdigit():
+                            current_input += char
+                            # RFID reader sends 10 digits
+                            if len(current_input) == 10:
+                                self.rfid_input_queue.put(current_input)
                                 current_input = ""
+                        elif char in ['\n', '\r']:
+                            # End of RFID input
+                            if len(current_input) >= 8:  # Minimum valid length
+                                self.rfid_input_queue.put(current_input)
+                            current_input = ""
+                        elif not char.isprintable():
+                            # Reset on non-printable characters
+                            current_input = ""
                             
-                            last_input_time = current_time
-                            
-                            if char.isdigit():
-                                current_input += char
-                                # RFID reader typically sends 10 digits
-                                if len(current_input) >= 8:  # Allow 8-12 digits
-                                    # Wait a moment for complete input
-                                    time.sleep(0.1)
-                                    
-                                    # Read any remaining characters
-                                    while select.select([sys.stdin], [], [], 0.05)[0]:
-                                        extra_char = sys.stdin.read(1)
-                                        if extra_char.isdigit():
-                                            current_input += extra_char
-                                        else:
-                                            break
-                                    
-                                    # Process the complete RFID input
-                                    if len(current_input) >= 8:
-                                        print(f"🔍 Raw RFID input: '{current_input}'")
-                                        self.rfid_input_queue.put(current_input.strip())
-                                        current_input = ""
-                                        
-                            elif char in ['\n', '\r']:
-                                # End of RFID input
-                                if len(current_input) >= 8:
-                                    print(f"🔍 Raw RFID input (with newline): '{current_input}'")
-                                    self.rfid_input_queue.put(current_input.strip())
-                                current_input = ""
-                                
-                            elif not char.isprintable() or char.isspace():
-                                # Handle non-printable characters or spaces
-                                if len(current_input) >= 8:
-                                    print(f"🔍 Raw RFID input (terminated): '{current_input}'")
-                                    self.rfid_input_queue.put(current_input.strip())
-                                    current_input = ""
-                                elif current_input:
-                                    # Reset partial input on unexpected character
-                                    current_input = ""
-                            else:
-                                # Reset on unexpected printable character
-                                current_input = ""
-                                
-                        except Exception as e:
-                            # Handle any input reading errors
-                            time.sleep(0.1)
-                            
-                    time.sleep(0.01)  # Small delay to prevent excessive CPU usage
-                    
-                except Exception as e:
-                    print(f"RFID monitoring error: {e}")
-                    time.sleep(0.5)
+                    time.sleep(0.01)
+                except:
+                    time.sleep(0.1)
         
         # Start RFID monitoring thread
         rfid_thread = threading.Thread(target=rfid_input_thread, daemon=True)
         rfid_thread.start()
-        print("🔍 RFID monitoring thread started")
     
     def process_rfid_input(self):
         """Process RFID input from queue"""
@@ -201,9 +145,7 @@ class FaceRecognitionButtonTrigger:
     
     def handle_rfid_scan(self, rfid_data):
         """Handle RFID card scan"""
-        # Clean the RFID data
-        rfid_data = rfid_data.strip()
-        print(f"🏷️ RFID card detected: '{rfid_data}' (length: {len(rfid_data)})")
+        print(f"🏷️ RFID card detected: {rfid_data}")
         self.buzzer_rfid_detected()
         
         if not self.rfid_backup_active:
@@ -211,60 +153,23 @@ class FaceRecognitionButtonTrigger:
             self.buzzer_rfid_not_allowed()
             return
         
-        # Normalize RFID data - some readers might add leading zeros or have different formats
-        normalized_rfid = rfid_data.zfill(10)  # Pad with leading zeros to 10 digits
-        
-        print(f"🔍 Checking authorization for card: '{rfid_data}' (normalized: '{normalized_rfid}')")
-        print(f"🔍 Authorized cards: {list(self.authorized_rfid_cards.keys())}")
-        
-        # Check if card is authorized (try both original and normalized)
-        card_found = False
-        card_name = ""
-        
+        # Check if card is authorized
         if rfid_data in self.authorized_rfid_cards:
-            card_found = True
             card_name = self.authorized_rfid_cards[rfid_data]
-            print(f"✅ Card found with original format: {rfid_data}")
-        elif normalized_rfid in self.authorized_rfid_cards:
-            card_found = True
-            card_name = self.authorized_rfid_cards[normalized_rfid]
-            print(f"✅ Card found with normalized format: {normalized_rfid}")
-        else:
-            # Try without leading zeros for cards stored differently
-            stripped_rfid = rfid_data.lstrip('0')
-            if stripped_rfid in self.authorized_rfid_cards:
-                card_found = True
-                card_name = self.authorized_rfid_cards[stripped_rfid]
-                print(f"✅ Card found with stripped format: {stripped_rfid}")
-        
-        if card_found:
             print(f"✅ RFID Authentication successful - {card_name}")
             self.buzzer_rfid_success()
             self.unlock_via_rfid(card_name)
         else:
-            print(f"❌ RFID card '{rfid_data}' not authorized")
-            print("💡 Tip: Use setup_rfid_cards.py to add this card if it should be authorized")
+            print("❌ RFID card not authorized")
             self.buzzer_rfid_unauthorized()
     
     def unlock_via_rfid(self, card_name):
         """Unlock using RFID authentication"""
         print(f"🔓 Unlocking via RFID - {card_name}")
-        
-        # Actually trigger the lock mechanism like face recognition does
-        try:
-            # Import the lock functionality
-            from src.biometric_auth import BiometricAuth
-            
-            # Create a temporary auth instance to access the lock
-            temp_auth = BiometricAuth()
-            
-            # Trigger the actual lock unlock mechanism
-            temp_auth.unlock_lock(card_name)
-            print("🎉 Lock opened via RFID backup authentication!")
-            
-        except Exception as e:
-            print(f"Warning: Could not trigger lock mechanism: {e}")
-            print("🎉 RFID authentication successful - manual lock override may be needed")
+        # Here you would trigger your lock mechanism
+        # For now, we'll simulate it
+        time.sleep(1)
+        print("🎉 Lock opened via RFID backup authentication!")
         
         # Reset states
         self.rfid_backup_active = False
@@ -273,23 +178,6 @@ class FaceRecognitionButtonTrigger:
     def activate_rfid_backup(self):
         """Activate RFID backup mode after face auth failure"""
         self.rfid_backup_active = True
-        
-        # Clear any pending RFID input from queue to prevent first-tap issues
-        while not self.rfid_input_queue.empty():
-            try:
-                self.rfid_input_queue.get_nowait()
-            except queue.Empty:
-                break
-        
-        # Flush terminal input buffer to ensure clean state
-        try:
-            import termios
-            import sys
-            termios.tcflush(sys.stdin, termios.TCIOFLUSH)
-            print("🔍 Terminal buffers flushed for clean RFID input")
-        except Exception as e:
-            print(f"🔍 Could not flush terminal buffers: {e}")
-        
         print("🏷️ RFID backup activated - scan your card within 30 seconds")
         self.buzzer_rfid_backup_activated()
         
