@@ -69,6 +69,42 @@ def buzzer_auth_failure():
     """Authentication failure - rapid beeps"""
     buzzer_beep(duration=0.1, count=5, interval=0.1)
 
+def buzzer_no_face_detected():
+    """No face detected - single long beep"""
+    buzzer_beep(duration=0.4, count=1)
+
+def buzzer_camera_error():
+    """Camera error - alternating pattern"""
+    def camera_error_pattern():
+        for _ in range(3):
+            buzzer.on()
+            time.sleep(0.2)
+            buzzer.off()
+            time.sleep(0.3)
+            buzzer.on()
+            time.sleep(0.1)
+            buzzer.off()
+            time.sleep(0.2)
+    
+    threading.Thread(target=camera_error_pattern, daemon=True).start()
+
+def buzzer_user_cancelled():
+    """User cancelled - descending beeps"""
+    def cancelled_pattern():
+        buzzer.on()
+        time.sleep(0.15)
+        buzzer.off()
+        time.sleep(0.1)
+        buzzer.on()
+        time.sleep(0.1)
+        buzzer.off()
+        time.sleep(0.1)
+        buzzer.on()
+        time.sleep(0.05)
+        buzzer.off()
+    
+    threading.Thread(target=cancelled_pattern, daemon=True).start()
+
 def buzzer_cooldown_warning():
     """Cooldown warning"""
     buzzer_beep(duration=0.2, count=1)
@@ -82,17 +118,49 @@ def run_authentication():
         print("🔄 Starting face recognition authentication with anti-spoofing...")
         buzzer_auth_start()
         
-        # Execute the authentication command
+        # Execute the authentication command with output capture
         result = subprocess.run(
             [sys.executable, "-m", "src.main", "auth", "--anti-spoofing"],
+            capture_output=True,  # Capture output to analyze results
+            text=True,
             timeout=120  # 2 minute timeout
         )
         
+        # Print the output
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr)
+        
+        # Analyze the output to determine the actual result
+        output_text = result.stdout + result.stderr
+        
         if result.returncode == 0:
-            print("✅ Authentication completed successfully")
-            buzzer_auth_success()
+            # Check what actually happened based on output
+            if "✅ Authentication successful" in output_text:
+                print("🎉 Authentication successful - Face recognized!")
+                buzzer_auth_success()
+            elif "Failed to start camera" in output_text:
+                print("📷 Camera failed to start")
+                buzzer_camera_error()
+            elif "Authentication failed: Maximum attempts reached" in output_text:
+                print("⏱️ No face detected - Maximum attempts reached")
+                buzzer_no_face_detected()
+            elif "Authentication failed: Timeout reached" in output_text:
+                print("⏱️ No face detected - Timeout reached")
+                buzzer_no_face_detected()
+            elif "Authentication failed" in output_text:
+                print("❌ Authentication failed - No face detected")
+                buzzer_no_face_detected()
+            elif "User quit the application" in output_text:
+                print("🛑 Authentication cancelled by user")
+                buzzer_user_cancelled()
+            else:
+                # Fallback - if we can't determine, assume no face detected
+                print("❓ Authentication completed - No face detected")
+                buzzer_no_face_detected()
         else:
-            print(f"❌ Authentication failed with return code: {result.returncode}")
+            print(f"❌ Authentication command failed with return code: {result.returncode}")
             buzzer_auth_failure()
             
     except subprocess.TimeoutExpired:
@@ -151,6 +219,9 @@ def main():
     print("   - Auth start: 3 beeps")
     print("   - Auth success: 2 long beeps")
     print("   - Auth failure: 5 rapid beeps")
+    print("   - No face detected: 1 long beep")
+    print("   - Camera error: Alternating beeps")
+    print("   - User cancelled: Descending beeps")
     print("Press the button to start face recognition authentication...")
     print("Press Ctrl+C to exit")
     print("-" * 50)

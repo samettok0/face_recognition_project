@@ -20,8 +20,11 @@ The system provides clear audio feedback for all events:
 - **🎵 Startup**: 2 short beeps when system starts
 - **🔔 Button Press**: Quick confirmation beep
 - **🎶 Auth Start**: 3 beeps when authentication begins
-- **✅ Auth Success**: 2 long celebratory beeps
-- **❌ Auth Failure**: 5 rapid warning beeps
+- **✅ Auth Success**: 2 long celebratory beeps (face recognized and authenticated)
+- **👤 No Face Detected**: 1 long beep (no face found during auth process)
+- **📷 Camera Error**: Alternating beep pattern (camera failed to start)
+- **🛑 User Cancelled**: Descending beeps (user pressed 'q' to quit)
+- **❌ Auth Failure**: 5 rapid warning beeps (system/command failure)
 - **⏱️ Cooldown Warning**: Single beep when button pressed during cooldown
 - **🛑 Shutdown**: 2 beeps when system shuts down
 
@@ -145,8 +148,11 @@ python simple_button_trigger.py
 | System Startup | ♪♪ | 2 short beeps |
 | Valid Button Press | ♪ | Quick confirmation beep |
 | Auth Starting | ♪♪♪ | 3 beeps |
-| Auth Success | ♪♪♪♪ | 2 long celebratory beeps |
-| Auth Failure | ♪♪♪♪♪ | 5 rapid warning beeps |
+| Auth Success | ♪♪♪♪ | 2 long celebratory beeps (face recognized) |
+| No Face Detected | ♪♪♪♪ | 1 long beep (timeout/max frames) |
+| Camera Error | ♪♪-♪-♪♪-♪-♪♪-♪ | Alternating pattern (camera failed) |
+| User Cancelled | ♪♪-♪-♪ | Descending beeps (user quit) |
+| Auth Failure | ♪♪♪♪♪ | 5 rapid warning beeps (system error) |
 | Cooldown Warning | ♪ | Single warning beep |
 | Error | ♪♪♪♪ | 2 long error tones |
 | System Shutdown | ♪♪ | 2 shutdown beeps |

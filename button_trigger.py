@@ -104,6 +104,47 @@ class FaceRecognitionButtonTrigger:
         
         threading.Thread(target=failure_pattern, daemon=True).start()
         
+    def buzzer_no_face_detected(self):
+        """Play no face detected pattern - single long beep"""
+        def no_face_pattern():
+            self.buzzer.on()
+            time.sleep(0.4)
+            self.buzzer.off()
+        
+        threading.Thread(target=no_face_pattern, daemon=True).start()
+        
+    def buzzer_camera_error(self):
+        """Play camera error pattern - alternating beeps"""
+        def camera_error_pattern():
+            for _ in range(3):
+                self.buzzer.on()
+                time.sleep(0.2)
+                self.buzzer.off()
+                time.sleep(0.3)
+                self.buzzer.on()
+                time.sleep(0.1)
+                self.buzzer.off()
+                time.sleep(0.2)
+        
+        threading.Thread(target=camera_error_pattern, daemon=True).start()
+        
+    def buzzer_user_cancelled(self):
+        """Play user cancelled pattern - descending beeps"""
+        def cancelled_pattern():
+            self.buzzer.on()
+            time.sleep(0.15)
+            self.buzzer.off()
+            time.sleep(0.1)
+            self.buzzer.on()
+            time.sleep(0.1)
+            self.buzzer.off()
+            time.sleep(0.1)
+            self.buzzer.on()
+            time.sleep(0.05)
+            self.buzzer.off()
+        
+        threading.Thread(target=cancelled_pattern, daemon=True).start()
+        
     def buzzer_cooldown_warning(self):
         """Play cooldown warning beep"""
         def warning_beep():
@@ -175,18 +216,48 @@ class FaceRecognitionButtonTrigger:
             print(f"Executing command: {' '.join(cmd)}")
             print(f"Working directory: {current_dir}")
             
-            # Execute the authentication command
+            # Execute the authentication command with output capture
             result = subprocess.run(
                 cmd,
                 cwd=current_dir,
-                capture_output=False,  # Allow real-time output
+                capture_output=True,  # Capture output to analyze results
                 text=True,
                 timeout=120  # 2 minute timeout
             )
             
+            # Print the output in real-time style
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(result.stderr)
+            
+            # Analyze the output to determine the actual result
+            output_text = result.stdout + result.stderr
+            
             if result.returncode == 0:
-                print("✅ Authentication command completed successfully")
-                self.buzzer_auth_success()
+                # Check what actually happened based on output
+                if "✅ Authentication successful" in output_text:
+                    print("🎉 Authentication successful - Face recognized!")
+                    self.buzzer_auth_success()
+                elif "Failed to start camera" in output_text:
+                    print("📷 Camera failed to start")
+                    self.buzzer_camera_error()
+                elif "Authentication failed: Maximum attempts reached" in output_text:
+                    print("⏱️ No face detected - Maximum attempts reached")
+                    self.buzzer_no_face_detected()
+                elif "Authentication failed: Timeout reached" in output_text:
+                    print("⏱️ No face detected - Timeout reached")
+                    self.buzzer_no_face_detected()
+                elif "Authentication failed" in output_text:
+                    print("❌ Authentication failed - No face detected")
+                    self.buzzer_no_face_detected()
+                elif "User quit the application" in output_text:
+                    print("🛑 Authentication cancelled by user")
+                    self.buzzer_user_cancelled()
+                else:
+                    # Fallback - if we can't determine, assume no face detected
+                    print("❓ Authentication completed - No face detected")
+                    self.buzzer_no_face_detected()
             else:
                 print(f"❌ Authentication command failed with return code: {result.returncode}")
                 self.buzzer_auth_failure()
@@ -233,6 +304,9 @@ class FaceRecognitionButtonTrigger:
             print("   - Auth start: 3 beeps")
             print("   - Auth success: 2 long beeps")
             print("   - Auth failure: 5 rapid beeps")
+            print("   - No face detected: 1 long beep")
+            print("   - Camera error: Alternating beeps")
+            print("   - User cancelled: Descending beeps")
             print("   - Cooldown warning: Single beep")
             print("Press Ctrl+C to exit")
             print("-" * 50)
