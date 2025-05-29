@@ -73,8 +73,8 @@ echo "===============================================" >> /home/pillguard/face_a
 echo "$(date): System startup initiated" >> /home/pillguard/face_auth.log
 echo "===============================================" >> /home/pillguard/face_auth.log
 
-# Run the main script (HEADLESS VERSION)
-python button_trigger_with_rfid_headless.py >> /home/pillguard/face_auth.log 2>&1 &
+# Run the main script
+python button_trigger_with_rfid.py >> /home/pillguard/face_auth.log 2>&1 &
 
 echo "✅ Face Recognition + RFID system started!"
 echo "📋 Check logs: tail -f /home/pillguard/face_auth.log" 
