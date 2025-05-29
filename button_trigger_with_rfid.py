@@ -221,6 +221,35 @@ class FaceRecognitionButtonTrigger:
         self.rfid_backup_active = False
         self.last_auth_end_time = time.time()
     
+    def unlock_via_face_recognition(self):
+        """Unlock using face recognition authentication"""
+        print("🔓 Unlocking via face recognition")
+        
+        try:
+            if self.gpio_lock:
+                # Use physical GPIO lock - same as RFID system
+                success = self.gpio_lock.unlock("Face Recognition")
+                if success:
+                    print("🎉 Lock opened via face recognition authentication!")
+                else:
+                    print("❌ Failed to unlock via face recognition - lock operation failed")
+                    self.buzzer_camera_error()  # Use error buzzer pattern
+            else:
+                # Fallback to simulation if GPIO lock is not available
+                print("🔓 SIMULATED FACE UNLOCK: Access granted")
+                print(f"   (Would unlock for {LOCK_UNLOCK_DURATION if LOCK_AVAILABLE else 5.0} seconds)")
+                # Simulate the unlock duration
+                time.sleep(LOCK_UNLOCK_DURATION if LOCK_AVAILABLE else 5.0)
+                print("🔒 Simulated lock secured again")
+                print("🎉 Simulated lock opened via face recognition authentication!")
+                
+        except Exception as e:
+            print(f"❌ Error during face recognition unlock operation: {e}")
+            self.buzzer_camera_error()
+        
+        # Set auth end time for cooldown
+        self.last_auth_end_time = time.time()
+    
     def activate_rfid_backup(self):
         """Activate RFID backup mode after face auth failure"""
         self.rfid_backup_active = True
@@ -468,6 +497,8 @@ class FaceRecognitionButtonTrigger:
                 if "✅ Authentication successful" in output_text:
                     print("🎉 Face recognition successful!")
                     self.buzzer_auth_success()
+                    # Unlock the lock for successful face authentication
+                    self.unlock_via_face_recognition()
                 else:
                     # Face recognition failed - activate RFID backup
                     if "Failed to start camera" in output_text:
@@ -540,16 +571,23 @@ class FaceRecognitionButtonTrigger:
             print("🔊 Buzzer feedback enabled:")
             print("   - Button press: Short beep")
             print("   - Auth start: 3 beeps")
-            print("   - Face success: 2 long beeps")
+            print("   - Face success: 2 long beeps + UNLOCK")
             print("   - No face detected: 1 long beep")
             print("   - RFID backup activated: 2 short + 1 long beep")
             print("   - RFID detected: 2 quick beeps")
-            print("   - RFID success: 3 beeps + long beep")
+            print("   - RFID success: 3 beeps + long beep + UNLOCK")
             print("   - RFID unauthorized: 4 rapid beeps")
             print("🏷️ RFID Backup System:")
             print("   - Activates when face recognition fails")
             print("   - 30-second window to scan card")
             print("   - Authorized cards unlock the system")
+            print("🔓 Lock Control:")
+            print("   - Face recognition success → Physical lock unlock")
+            print("   - RFID backup success → Physical lock unlock")
+            if self.gpio_lock:
+                print(f"   - Both methods use GPIO pin {GPIO_LOCK_PIN} for {LOCK_UNLOCK_DURATION}s")
+            else:
+                print("   - Both methods use simulation mode (GPIO disabled)")
             print("Press Ctrl+C to exit")
             print("-" * 50)
             
