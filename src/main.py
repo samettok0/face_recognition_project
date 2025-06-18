@@ -113,26 +113,33 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
                 print(f"Error during face recognition: {e}")
                 results = []
             
-            # Check if any recognized face belongs to authorized user
-            is_match = False
+            # Initialize quality check for any detected face
             is_quality = False
+            is_match = False
+            matched_name = "Unknown"
+            
+            # First, check quality for any detected face (not just recognized ones)
+            if results:
+                # Use the first detected face for quality validation
+                bbox, name, confidence = results[0]
+                
+                # Enhanced face quality validation for any detected face
+                if validate_face_size_and_distance(frame, bbox):
+                    quality_score = calculate_face_quality_score(frame, bbox)
+                    is_quality = quality_score > 0.6  # Require 60% quality score
+                    
+                    if not is_quality:
+                        print(f"⚠️  Face quality too low ({quality_score:.2f}) - potential bypass attempt")
+                    else:
+                        print(f"✅ Face quality good ({quality_score:.2f})")
+                else:
+                    print(f"⚠️  Face distance/size validation failed - potential bypass attempt")
+            
+            # Now check for recognized faces
             for bbox, name, confidence in results:
                 if name != "Unknown" and name in auth.authorized_users:
                     is_match = True
-                    matched_name = name  # Fix: Save matched name
-                    
-                    # Enhanced face quality validation
-                    if validate_face_size_and_distance(frame, bbox):
-                        quality_score = calculate_face_quality_score(frame, bbox)
-                        is_quality = quality_score > 0.6  # Require 60% quality score
-                        
-                        if not is_quality:
-                            print(f"⚠️  Face quality too low ({quality_score:.2f}) - potential bypass attempt")
-                        else:
-                            print(f"✅ Face quality good ({quality_score:.2f})")
-                    else:
-                        print(f"⚠️  Face distance/size validation failed - potential bypass attempt")
-                    
+                    matched_name = name
                     print(f"MATCH! Recognized {name} with confidence {confidence:.2f}")
                     break
                 else:

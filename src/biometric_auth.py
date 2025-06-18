@@ -264,23 +264,30 @@ class BiometricAuth:
                     break
                 
                 # Check for authorized users with enhanced quality validation
-                for bbox, name, confidence in results:
-                    # Skip unauthorized or fake faces
-                    if name == "Unknown" or name == "Fake" or name not in self.authorized_users:
-                        continue
+                is_quality = False
+                
+                # First, check quality for any detected face (not just recognized ones)
+                if results:
+                    # Use the first detected face for quality validation
+                    bbox, name, confidence = results[0]
                     
-                    # Enhanced face quality validation
-                    is_quality = False
+                    # Enhanced face quality validation for any detected face
                     if validate_face_size_and_distance(frame, bbox):
                         quality_score = calculate_face_quality_score(frame, bbox)
                         is_quality = quality_score > 0.6  # Require 60% quality score
                         
                         if not is_quality:
-                            logger.warning(f"Face quality too low ({quality_score:.2f}) for {name} - potential bypass attempt")
+                            logger.warning(f"Face quality too low ({quality_score:.2f}) - potential bypass attempt")
                         else:
-                            logger.info(f"Face quality good ({quality_score:.2f}) for {name}")
+                            logger.info(f"Face quality good ({quality_score:.2f})")
                     else:
-                        logger.warning(f"Face distance/size validation failed for {name} - potential bypass attempt")
+                        logger.warning(f"Face distance/size validation failed - potential bypass attempt")
+                
+                # Now check for authorized users
+                for bbox, name, confidence in results:
+                    # Skip unauthorized or fake faces
+                    if name == "Unknown" or name == "Fake" or name not in self.authorized_users:
+                        continue
                         
                     # Reset consecutive matches for all other users in single auth mode
                     if single_authentication:
