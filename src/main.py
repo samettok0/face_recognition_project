@@ -15,7 +15,7 @@ from .head_pose_demo import run_head_pose_demo
 from .guided_registration import register_user_guided
 from .anti_spoofing import AntiSpoofing
 from .decision_gate import DecisionGate
-from .utils import logger, draw_recognition_feedback_on_frame
+from .utils import logger, draw_recognition_feedback_on_frame, draw_enhanced_anti_spoofing_feedback, draw_authentication_status, validate_face_size_and_distance, calculate_face_quality_score
 from .config import TRAINING_DIR
 
 def register_new_person(camera_handler, face_encoder):
@@ -44,7 +44,7 @@ def register_new_person(camera_handler, face_encoder):
 def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False, 
                    window: int = 15, min_live: int = 12, min_match: int = 12,
                    live_threshold: float = 0.9):
-    """Run one-time authentication attempt"""
+    """Run one-time authentication attempt with enhanced anti-spoofing"""
     auth = BiometricAuth(
         recognition_threshold=0.55, 
         model=model,
@@ -59,17 +59,20 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
                 auth.add_authorized_user(person_dir.name)
                 print(f"Authorized user: {person_dir.name}")
     
-    # Initialize spoof detector and decision gate
+    # Initialize spoof detector and enhanced decision gate
     spoof_detector = AntiSpoofing()
     if use_anti_spoofing:
         spoof_detector.set_threshold(live_threshold)
     
-    gate = DecisionGate(window, min_live, min_match)
+    # Enhanced decision gate with quality checks
+    min_quality = max(8, window - 7)  # Require at least 8 quality frames, or window-7
+    gate = DecisionGate(window, min_live, min_match, min_quality)
     
-    anti_spoof_msg = " with anti-spoofing" if use_anti_spoofing else ""
+    anti_spoof_msg = " with enhanced anti-spoofing" if use_anti_spoofing else ""
     print(f"Starting authentication{anti_spoof_msg}...")
-    print(f"Using window={window}, min_live={min_live}, min_match={min_match}")
+    print(f"Using window={window}, min_live={min_live}, min_match={min_match}, min_quality={min_quality}")
     print("Looking for authorized user. Press 'q' to quit.")
+    print("⚠️  Enhanced security: Face must be at proper distance and quality.")
     
     # Start camera
     camera = CameraHandler()
@@ -112,10 +115,24 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
             
             # Check if any recognized face belongs to authorized user
             is_match = False
+            is_quality = False
             for bbox, name, confidence in results:
                 if name != "Unknown" and name in auth.authorized_users:
                     is_match = True
                     matched_name = name  # Fix: Save matched name
+                    
+                    # Enhanced face quality validation
+                    if validate_face_size_and_distance(frame, bbox):
+                        quality_score = calculate_face_quality_score(frame, bbox)
+                        is_quality = quality_score > 0.6  # Require 60% quality score
+                        
+                        if not is_quality:
+                            print(f"⚠️  Face quality too low ({quality_score:.2f}) - potential bypass attempt")
+                        else:
+                            print(f"✅ Face quality good ({quality_score:.2f})")
+                    else:
+                        print(f"⚠️  Face distance/size validation failed - potential bypass attempt")
+                    
                     print(f"MATCH! Recognized {name} with confidence {confidence:.2f}")
                     break
                 else:
@@ -126,36 +143,66 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
             if use_anti_spoofing:
                 try:
                     is_live = spoof_detector.is_live(frame)
+                    if not is_live:
+                        print("⚠️  Anti-spoofing detected potential fake face")
                 except Exception as e:
                     print(f"Anti-spoofing error: {e}")
                     is_live = True  # Fallback to True on error
             
             # Debug info
-            print(f"Frame {frame_count}/{max_frames}: Match={is_match} ({matched_name}), Live={is_live}")
+            print(f"Frame {frame_count}/{max_frames}: Match={is_match} ({matched_name}), Live={is_live}, Quality={is_quality}")
             
-            # Update decision gate
-            gate_result = gate.update(is_live, is_match)
-            print(f"Gate status: {sum(gate.live_q)}/{len(gate.live_q)} live, {sum(gate.match_q)}/{len(gate.match_q)} match")
+            # Update enhanced decision gate
+            gate_result = gate.update(is_live, is_match, is_quality)
+            status = gate.get_status()
+            print(f"Gate status: {status['live']} live, {status['match']} match, {status['quality']} quality")
             
             if gate_result:
                 print(f"✅ Authentication successful - {matched_name}")
+                print("🎉 All security checks passed: liveness, recognition, and face quality")
+                
+                # Show success message in GUI for 3 seconds
+                success_start_time = time.time()
+                while time.time() - success_start_time < 3.0:
+                    success_frame = camera.get_frame()
+                    if success_frame is not None:
+                        # Draw success message on frame
+                        annotated_frame = draw_authentication_status(
+                            success_frame, 
+                            "AUTHENTICATION SUCCESSFUL", 
+                            f"Welcome, {matched_name}!",
+                            is_success=True
+                        )
+                        cv2.imshow("Authentication", annotated_frame)
+                        
+                        # Check for 'q' key to quit
+                        if cv2.waitKey(1) & 0xFF == ord('q'):
+                            break
+                    
+                    time.sleep(0.03)  # Small delay
+                
+                # Unlock the lock
                 auth.unlock_lock(matched_name)
+                
                 # Exit the program on successful authentication
                 print("Exiting application after successful authentication...")
-                time.sleep(2)  # Allow time to see the success message
+                time.sleep(1)  # Brief pause before exit
                 sys.exit(0)
             
             # Show feedback on frame
             try:
-                annotated_frame = draw_recognition_feedback_on_frame(frame, results)
-                # Use actual values not symbols for clarity
-                status_text = f"Match: {is_match}, Live: {is_live}"
-                cv2.putText(annotated_frame, status_text, (10, 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0) if is_live and is_match else (0, 0, 255), 2)
+                # Use the enhanced anti-spoofing display function
+                annotated_frame = draw_enhanced_anti_spoofing_feedback(frame, results, is_live)
                 
-                # Add frame counter
+                # Add frame counter and quality info
                 cv2.putText(annotated_frame, f"Frame: {frame_count}/{max_frames}", (10, 60),
                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                
+                # Add quality status
+                quality_color = (0, 255, 0) if is_quality else (0, 0, 255)
+                quality_text = "Quality: GOOD" if is_quality else "Quality: POOR"
+                cv2.putText(annotated_frame, quality_text, (10, 90),
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.6, quality_color, 2)
                 
                 cv2.imshow("Authentication", annotated_frame)
             except Exception as e:
@@ -176,10 +223,74 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
         # If we got here, authentication was not successful
         if frame_count >= max_frames:
             print("❌ Authentication failed: Maximum attempts reached")
+            print("💡 Tip: Ensure face is at proper distance (not too close or far)")
+            
+            # Show failure message in GUI for 3 seconds
+            failure_start_time = time.time()
+            while time.time() - failure_start_time < 3.0:
+                failure_frame = camera.get_frame()
+                if failure_frame is not None:
+                    # Draw failure message on frame
+                    annotated_frame = draw_authentication_status(
+                        failure_frame, 
+                        "AUTHENTICATION FAILED", 
+                        f"Exceeded {max_frames} frames limit",
+                        is_success=False
+                    )
+                    cv2.imshow("Authentication", annotated_frame)
+                    
+                    # Check for 'q' key to quit
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
+                
+                time.sleep(0.03)  # Small delay
+                
         elif time.time() - start_time >= 60:
             print("❌ Authentication failed: Timeout reached")
+            print("💡 Tip: Ensure face is at proper distance (not too close or far)")
+            
+            # Show timeout message in GUI for 3 seconds
+            timeout_start_time = time.time()
+            while time.time() - timeout_start_time < 3.0:
+                timeout_frame = camera.get_frame()
+                if timeout_frame is not None:
+                    # Draw timeout message on frame
+                    annotated_frame = draw_authentication_status(
+                        timeout_frame, 
+                        "AUTHENTICATION FAILED", 
+                        "Timeout reached (60 seconds)",
+                        is_success=False
+                    )
+                    cv2.imshow("Authentication", annotated_frame)
+                    
+                    # Check for 'q' key to quit
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
+                
+                time.sleep(0.03)  # Small delay
         else:
             print("❌ Authentication failed")
+            print("💡 Tip: Ensure face is at proper distance (not too close or far)")
+            
+            # Show generic failure message in GUI for 3 seconds
+            generic_failure_start_time = time.time()
+            while time.time() - generic_failure_start_time < 3.0:
+                generic_failure_frame = camera.get_frame()
+                if generic_failure_frame is not None:
+                    # Draw generic failure message on frame
+                    annotated_frame = draw_authentication_status(
+                        generic_failure_frame, 
+                        "AUTHENTICATION FAILED", 
+                        "No authorized user detected",
+                        is_success=False
+                    )
+                    cv2.imshow("Authentication", annotated_frame)
+                    
+                    # Check for 'q' key to quit
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
+                
+                time.sleep(0.03)  # Small delay
     
     finally:
         camera.stop()

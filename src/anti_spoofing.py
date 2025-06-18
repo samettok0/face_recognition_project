@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 from typing import Dict, List, Tuple, Union, Optional, Any
 from deepface import DeepFace
-from .utils import logger, draw_recognition_feedback_on_frame, resize_for_deepface
+from .utils import logger, draw_recognition_feedback_on_frame, draw_enhanced_anti_spoofing_feedback, resize_for_deepface
 
 # Default threshold for live detection
 LIVE_THRESHOLD = 0.5
@@ -272,7 +272,9 @@ class AntiSpoofing:
                     
                     # Add FPS counter for performance monitoring
                     if results:
-                        annotated_frame = draw_recognition_feedback_on_frame(frame, results)
+                        # Determine liveness status for display
+                        is_live = all(name == "Real" for bbox, name, confidence in results)
+                        annotated_frame = draw_enhanced_anti_spoofing_feedback(frame, results, is_live)
                         cv2.putText(annotated_frame, f"Found {len(results)} faces", (10, 30), 
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                     else:

@@ -8,7 +8,7 @@ from deepface import DeepFace
 
 from .camera_handler import CameraHandler
 from .face_recognizer import FaceRecognizer
-from .utils import draw_recognition_feedback_on_frame
+from .utils import draw_recognition_feedback_on_frame, draw_enhanced_anti_spoofing_feedback, draw_authentication_status, validate_face_size_and_distance, calculate_face_quality_score
 from .gpio_lock import GPIOLock
 from .config import GPIO_LOCK_PIN, LOCK_UNLOCK_DURATION, ENABLE_GPIO_LOCK, GPIO_LOCK_ACTIVE_HIGH
 
@@ -148,7 +148,7 @@ class BiometricAuth:
                                             timeout: int = 30,
                                             on_success: Optional[Callable[[str], None]] = None) -> Tuple[bool, Optional[str]]:
         """
-        Common method for camera initialization and face recognition processing
+        Common method for camera initialization and face recognition processing with enhanced security
         
         Args:
             window_name: Name for the display window
@@ -165,9 +165,10 @@ class BiometricAuth:
             return False, None
             
         try:
-            logger.info(f"Starting {'authentication' if single_authentication else 'continuous monitoring'}")
+            logger.info(f"Starting {'authentication' if single_authentication else 'continuous monitoring'} with enhanced security")
             start_time = time.time()
             consecutive_matches = {}  # username -> count
+            consecutive_quality = {}  # username -> quality count
             
             # Start recognition thread if using threading
             if self.use_threading:
@@ -245,32 +246,88 @@ class BiometricAuth:
                         results = verified_results
                 
                 # Show feedback on frame
-                annotated_frame = draw_recognition_feedback_on_frame(frame, results)
+                # Determine liveness status for display
+                is_live = True  # Default to live
+                if self.use_anti_spoofing and results:
+                    # Check if any face is marked as "Fake"
+                    for bbox, name, confidence in results:
+                        if name == "Fake":
+                            is_live = False
+                            break
+                
+                # Use enhanced anti-spoofing display
+                annotated_frame = draw_enhanced_anti_spoofing_feedback(frame, results, is_live)
                 cv2.imshow(window_name, annotated_frame)
                 
                 # Check for 'q' key to quit
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
                 
-                # Check for authorized users
+                # Check for authorized users with enhanced quality validation
                 for bbox, name, confidence in results:
                     # Skip unauthorized or fake faces
                     if name == "Unknown" or name == "Fake" or name not in self.authorized_users:
                         continue
+                    
+                    # Enhanced face quality validation
+                    is_quality = False
+                    if validate_face_size_and_distance(frame, bbox):
+                        quality_score = calculate_face_quality_score(frame, bbox)
+                        is_quality = quality_score > 0.6  # Require 60% quality score
+                        
+                        if not is_quality:
+                            logger.warning(f"Face quality too low ({quality_score:.2f}) for {name} - potential bypass attempt")
+                        else:
+                            logger.info(f"Face quality good ({quality_score:.2f}) for {name}")
+                    else:
+                        logger.warning(f"Face distance/size validation failed for {name} - potential bypass attempt")
                         
                     # Reset consecutive matches for all other users in single auth mode
                     if single_authentication:
                         for other_name in consecutive_matches:
                             if other_name != name:
                                 consecutive_matches[other_name] = 0
+                                consecutive_quality[other_name] = 0
                             
                     # Increment match count for this user
                     consecutive_matches[name] = consecutive_matches.get(name, 0) + 1
                     
-                    # Check if we have enough consecutive matches
-                    if consecutive_matches[name] >= self.consecutive_matches_required:
+                    # Increment quality count for this user
+                    if is_quality:
+                        consecutive_quality[name] = consecutive_quality.get(name, 0) + 1
+                    else:
+                        consecutive_quality[name] = 0  # Reset quality count if quality check fails
+                    
+                    # Check if we have enough consecutive matches AND quality checks
+                    quality_required = max(3, self.consecutive_matches_required - 1)  # Require quality for most frames
+                    
+                    if (consecutive_matches[name] >= self.consecutive_matches_required and 
+                        consecutive_quality[name] >= quality_required):
                         logger.info(f"Authentication successful: {name}" +
                                    (f" (confidence: {confidence:.2f})" if single_authentication else ""))
+                        logger.info(f"Quality checks passed: {consecutive_quality[name]}/{quality_required}")
+                        
+                        if single_authentication:
+                            # Show success message in GUI for 3 seconds
+                            success_start_time = time.time()
+                            while time.time() - success_start_time < 3.0:
+                                success_frame = self.camera.get_frame()
+                                if success_frame is not None:
+                                    # Draw success message on frame
+                                    annotated_frame = draw_authentication_status(
+                                        success_frame, 
+                                        "AUTHENTICATION SUCCESSFUL", 
+                                        f"Welcome, {name}!",
+                                        is_success=True
+                                    )
+                                    cv2.imshow(window_name, annotated_frame)
+                                    
+                                    # Check for 'q' key to quit
+                                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                                        break
+                                
+                                time.sleep(0.03)  # Small delay
+                        
                         self.unlock_lock(name)
                         
                         if single_authentication:
@@ -281,13 +338,44 @@ class BiometricAuth:
                         # In continuous mode, reset and continue after success
                         if not single_authentication:
                             consecutive_matches = {}
+                            consecutive_quality = {}
                             time.sleep(3)  # Wait before next authentication attempt
                 
                 attempt += 1
                 time.sleep(0.03 if not single_authentication else 0.1)  # Small delay between frames
                 
             if single_authentication:
-                logger.info("Authentication failed: No authorized user recognized")
+                logger.info("Authentication failed: No authorized user recognized or quality checks failed")
+                logger.info("💡 Tip: Ensure face is at proper distance (not too close or far)")
+                
+                # Show failure message in GUI for 3 seconds
+                failure_start_time = time.time()
+                while time.time() - failure_start_time < 3.0:
+                    failure_frame = self.camera.get_frame()
+                    if failure_frame is not None:
+                        # Determine failure reason
+                        if attempt >= max_attempts:
+                            failure_message = f"Exceeded {max_attempts} attempts limit"
+                        elif timeout and (time.time() - start_time) >= timeout:
+                            failure_message = f"Timeout reached ({timeout} seconds)"
+                        else:
+                            failure_message = "No authorized user detected or quality checks failed"
+                        
+                        # Draw failure message on frame
+                        annotated_frame = draw_authentication_status(
+                            failure_frame, 
+                            "AUTHENTICATION FAILED", 
+                            failure_message,
+                            is_success=False
+                        )
+                        cv2.imshow(window_name, annotated_frame)
+                        
+                        # Check for 'q' key to quit
+                        if cv2.waitKey(1) & 0xFF == ord('q'):
+                            break
+                    
+                    time.sleep(0.03)  # Small delay
+                
                 return False, None
             return False, None  # Should not reach here in continuous mode
                 
