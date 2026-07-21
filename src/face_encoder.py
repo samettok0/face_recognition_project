@@ -29,14 +29,12 @@ class FaceEncoder:
         names = []
         encodings = []
         
-        # Count total files for progress tracking
-        total_files = sum(1 for _ in TRAINING_DIR.glob("*/*"))
+        # Single directory walk, reused both for the progress-log denominator and iteration
+        files = [f for f in TRAINING_DIR.glob("*/*") if f.is_file()]
+        total_files = len(files)
         processed = 0
-        
-        for filepath in TRAINING_DIR.glob("*/*"):
-            if not filepath.is_file():
-                continue
-                
+
+        for filepath in files:
             # Extract name from parent directory
             name = filepath.parent.name
             logger.info(f"Processing image: {filepath.name} for person: {name}")

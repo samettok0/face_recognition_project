@@ -138,12 +138,12 @@ class AntiSpoofing:
             # Resize face for better performance - smaller size for face regions
             resized_face = resize_for_deepface(face_img, width=160, height=160)
             
-            # Use OpenCV detector for faster processing on Raspberry Pi
+            # Already a face crop from face_recognition — skip re-detection
             face_objs = DeepFace.extract_faces(
-                img_path=resized_face, 
+                img_path=resized_face,
                 anti_spoofing=True,
                 enforce_detection=False,
-                detector_backend="opencv"  # Faster for Pi
+                detector_backend="skip"
             )
             
             if not face_objs:
@@ -191,12 +191,12 @@ class AntiSpoofing:
                     # Resize face for better performance
                     resized_face = resize_for_deepface(face_img, width=160, height=160)
                     
-                    # Use OpenCV detector for faster processing on Raspberry Pi
+                    # Already a face crop from face_recognition — skip re-detection
                     face_objs = DeepFace.extract_faces(
-                        img_path=resized_face, 
+                        img_path=resized_face,
                         anti_spoofing=True,
                         enforce_detection=False,
-                        detector_backend="opencv"  # Faster for Pi
+                        detector_backend="skip"
                     )
                     
                     # Check if the face is real directly with is_real property

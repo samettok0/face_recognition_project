@@ -102,9 +102,11 @@ class BiometricAuth:
                         if name != "Unknown" and name in self.authorized_users:
                             try:
                                 # Perform anti-spoofing check using DeepFace
-                                face_objs = DeepFace.extract_faces(img_path=face_img, 
+                                # Already a face crop from face_recognition — skip re-detection
+                                face_objs = DeepFace.extract_faces(img_path=face_img,
                                                                  anti_spoofing=True,
-                                                                 enforce_detection=False)
+                                                                 enforce_detection=False,
+                                                                 detector_backend="skip")
                                 
                                 # Check if face is real
                                 is_real = all(face_obj.get("is_real", False) for face_obj in face_objs)
@@ -222,9 +224,11 @@ class BiometricAuth:
                             if name != "Unknown" and name in self.authorized_users:
                                 try:
                                     # Perform anti-spoofing check using DeepFace
-                                    face_objs = DeepFace.extract_faces(img_path=face_img, 
+                                    # Already a face crop from face_recognition — skip re-detection
+                                    face_objs = DeepFace.extract_faces(img_path=face_img,
                                                                      anti_spoofing=True,
-                                                                     enforce_detection=False)
+                                                                     enforce_detection=False,
+                                                                     detector_backend="skip")
                                     
                                     # Check if face is real
                                     is_real = all(face_obj.get("is_real", False) for face_obj in face_objs)

@@ -256,8 +256,8 @@ class GuidedRegistration:
                         time.sleep(0.1)
                         continue
                     
-                    # Get head pose
-                    pose_result = self.head_pose_detector.get_head_pose_simple(frame)
+                    # Get head pose (reuse cached result every other frame, matching head_pose_demo.py's default)
+                    pose_result = self.head_pose_detector.get_head_pose_simple(frame, skip_frames=1)
                     
                     # Current time for various timing operations
                     current_time = time.time()
