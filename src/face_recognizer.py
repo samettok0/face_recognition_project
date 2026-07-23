@@ -1,13 +1,11 @@
-from collections import Counter
-from typing import Dict, List, Union, Any, Tuple, Optional
+from typing import List, Tuple
 import numpy as np
 import face_recognition
 import cv2
-from PIL import Image, ImageDraw
 
 from .config import HOG_MODEL, ENCODINGS_FILE
 from .face_encoder import FaceEncoder
-from .utils import draw_bounding_box, logger, draw_recognition_feedback_on_frame
+from .utils import logger, draw_recognition_feedback_on_frame
 
 class FaceRecognizer:
     def __init__(self, model: str = HOG_MODEL, recognition_threshold: float = 0.5):
@@ -161,38 +159,6 @@ class FaceRecognizer:
             logger.error(f"Error in face recognition: {e}")
             return []
     
-    def _recognize_face(self, unknown_encoding: np.ndarray, 
-                        loaded_encodings: Dict[str, Union[List[str], List[Any]]]) -> Optional[str]:
-        """
-        Matches an unknown face encoding against known encodings.
-        
-        Args:
-            unknown_encoding: Face encoding to identify
-            loaded_encodings: Database of known face encodings
-            
-        Returns:
-            The most likely name match or None if no match found
-        """
-        if not loaded_encodings["encodings"]:
-            return None
-            
-        # Compare the face with known faces
-        boolean_matches = face_recognition.compare_faces(
-            loaded_encodings["encodings"], unknown_encoding
-        )
-        
-        # Count votes for each name that matched
-        votes = Counter(
-            name
-            for match, name in zip(boolean_matches, loaded_encodings["names"])
-            if match
-        )
-        
-        # Return the name with the most votes
-        if votes:
-            return votes.most_common(1)[0][0]
-        return None
-        
     def _recognize_face_with_confidence(self, unknown_encoding: np.ndarray) -> Tuple[str, float]:
         """
         Matches an unknown face encoding against known encodings with confidence score.
@@ -241,10 +207,3 @@ class FaceRecognizer:
         cv2.imshow("Recognition Results", annotated_image)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
-        
-        # Alternative PIL-based approach (kept for reference)
-        # pillow_image = Image.fromarray(image)
-        # draw = ImageDraw.Draw(pillow_image)
-        # for bounding_box, name in results:
-        #     draw_bounding_box(draw, bounding_box, name)
-        # pillow_image.show() 

@@ -2,9 +2,8 @@ import logging
 import os
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
-from typing import Tuple, List, Any, Optional, Dict, Union
-from .config import BOUNDING_BOX_COLOR, TEXT_COLOR, LOG_FILE, LOG_FORMAT
+from typing import Tuple, List, Any
+from .config import LOG_FILE, LOG_FORMAT
 import time
 
 # Configure logging once at module level
@@ -39,52 +38,7 @@ def color_name_to_bgr(color_name: str) -> Tuple[int, int, int]:
     }
     return color_map.get(color_name.lower(), (255, 255, 255))  # Default to white
 
-def draw_bounding_box(draw: ImageDraw, 
-                     bounding_box: Tuple[int, int, int, int],
-                     name: str,
-                     box_color: str = BOUNDING_BOX_COLOR,
-                     text_color: str = TEXT_COLOR) -> None:
-    """
-    Draw a bounding box with a name on a PIL Image
-    
-    Args:
-        draw: PIL ImageDraw object
-        bounding_box: Tuple of (top, right, bottom, left) coordinates
-        name: Name to display
-        box_color: Color to use for the bounding box
-        text_color: Color to use for the text
-    """
-    top, right, bottom, left = bounding_box
-    
-    # Draw the box
-    draw.rectangle([(left, top), (right, bottom)], outline=box_color, width=2)
-    
-    # Get text size - works with all PIL versions
-    try:
-        # For newer PIL versions
-        font = draw.getfont()
-        text_width, text_height = font.getsize(name)
-    except (AttributeError, TypeError):
-        try:
-            # For PIL 9.2.0+
-            font = ImageFont.load_default()
-            left, top, right, bottom = font.getbbox(name)
-            text_width, text_height = right - left, bottom - top
-        except:
-            # Fallback for older PIL versions
-            text_width, text_height = draw.textsize(name)
-    
-    text_left = left
-    text_bottom = bottom + text_height
-    
-    # Draw a filled rectangle for the text background
-    draw.rectangle([(text_left, bottom), (text_left + text_width, text_bottom)], 
-                   fill=box_color)
-    
-    # Draw the text
-    draw.text((text_left, bottom), name, fill=text_color)
-
-def draw_recognition_feedback_on_frame(frame: np.ndarray, 
+def draw_recognition_feedback_on_frame(frame: np.ndarray,
                                       results: List[Tuple[Any, ...]], 
                                       include_confidence: bool = True) -> np.ndarray:
     """

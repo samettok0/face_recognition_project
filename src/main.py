@@ -41,7 +41,16 @@ def register_new_person(camera_handler, face_encoder):
         print("Registration failed or was cancelled.")
         return False
 
-def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False, 
+def _authorize_all_registered_users(auth):
+    """Authorize every person that has a directory under the training dir."""
+    if not TRAINING_DIR.exists():
+        return
+    for person_dir in TRAINING_DIR.iterdir():
+        if person_dir.is_dir():
+            auth.add_authorized_user(person_dir.name)
+            print(f"Authorized user: {person_dir.name}")
+
+def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
                    window: int = 15, min_live: int = 12, min_match: int = 12,
                    live_threshold: float = 0.9):
     """Run one-time authentication attempt with enhanced anti-spoofing"""
@@ -52,13 +61,8 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
     )
     
     # Add all users from training directory as authorized
-    training_dir = TRAINING_DIR
-    if training_dir.exists():
-        for person_dir in training_dir.iterdir():
-            if person_dir.is_dir():
-                auth.add_authorized_user(person_dir.name)
-                print(f"Authorized user: {person_dir.name}")
-    
+    _authorize_all_registered_users(auth)
+
     # Initialize spoof detector and enhanced decision gate
     spoof_detector = AntiSpoofing()
     if use_anti_spoofing:
@@ -93,13 +97,15 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
         else:
             print("WARNING: Could not get initial frame from camera")
         
+        target_frame_time = 0.03  # ~33 fps cap; throttle accounts for time already spent processing
         while time.time() - start_time < 60 and frame_count < max_frames:  # 1 minute timeout or max frames
+            loop_start_time = time.time()
             frame = camera.get_frame()
             if frame is None:
                 print("Warning: Camera returned None frame, retrying...")
                 time.sleep(0.1)
                 continue
-            
+
             frame_count += 1
             
             # Process frame for facial recognition
@@ -224,8 +230,9 @@ def run_authenticate(model: str = "hog", use_anti_spoofing: bool = False,
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 print("User quit the application.")
                 break
-                
-            time.sleep(0.03)  # Small delay between frames
+
+            # Cap frame rate without stacking a flat delay on top of processing time
+            time.sleep(max(0, target_frame_time - (time.time() - loop_start_time)))
         
         # If we got here, authentication was not successful
         if frame_count >= max_frames:
@@ -313,13 +320,8 @@ def run_continuous_monitoring(model: str = "hog", use_anti_spoofing: bool = Fals
     )
     
     # Add all users from training directory as authorized
-    training_dir = TRAINING_DIR
-    if training_dir.exists():
-        for person_dir in training_dir.iterdir():
-            if person_dir.is_dir():
-                auth.add_authorized_user(person_dir.name)
-                print(f"Authorized user: {person_dir.name}")
-    
+    _authorize_all_registered_users(auth)
+
     anti_spoof_msg = " with anti-spoofing" if use_anti_spoofing else ""
     print(f"Starting continuous monitoring{anti_spoof_msg}...")
     print("Looking for authorized users. Press 'q' to quit.")

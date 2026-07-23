@@ -162,15 +162,6 @@ class FaceRecognitionButtonTrigger:
         rfid_thread = threading.Thread(target=rfid_input_thread, daemon=True)
         rfid_thread.start()
     
-    def process_rfid_input(self):
-        """Process RFID input from queue"""
-        while not self.rfid_input_queue.empty():
-            try:
-                rfid_data = self.rfid_input_queue.get_nowait()
-                self.handle_rfid_scan(rfid_data)
-            except queue.Empty:
-                break
-    
     def handle_rfid_scan(self, rfid_data):
         """Handle RFID card scan"""
         print(f"🏷️ RFID card detected: {rfid_data}")
@@ -591,12 +582,14 @@ class FaceRecognitionButtonTrigger:
             print("Press Ctrl+C to exit")
             print("-" * 50)
             
-            # Keep the program running and wait for button presses
+            # Keep the program running; block on the RFID queue instead of busy-polling
             while True:
-                # Process any RFID input
-                self.process_rfid_input()
-                time.sleep(0.1)
-            
+                try:
+                    rfid_data = self.rfid_input_queue.get(timeout=0.5)
+                except queue.Empty:
+                    continue
+                self.handle_rfid_scan(rfid_data)
+
         except KeyboardInterrupt:
             print("\n🛑 Shutting down button trigger...")
         finally:
